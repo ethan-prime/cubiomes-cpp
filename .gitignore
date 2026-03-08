@@ -8,5 +8,7 @@ docs/LayerSummary.synctex.gz
 docs/LayerSummary.toc
 *.o
 *.a
+*.so
 a.out
-
+build*/
+cubiomes-tests

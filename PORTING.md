@@ -2,9 +2,9 @@
 
 ## Current state
 - Core library sources are compiled as C++ (`*.cpp`).
-- Public headers remain C-compatible using `extern "C"` guards.
+- Public headers use `#pragma once` and remain C-compatible using `extern "C"` guards.
 - CI validates release and debug builds and runs regression hashes.
-- CI also compiles and runs a pure C consumer smoke program against the static library.
+- CI compiles and runs both C and C++ consumer smoke programs against the static library.
 
 ## Guardrails
 - Keep behavior parity first; avoid algorithmic changes in mechanical port PRs.

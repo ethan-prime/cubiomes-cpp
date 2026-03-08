@@ -1,5 +1,4 @@
-#ifndef QUADBASE_H_
-#define QUADBASE_H_
+#pragma once
 
 
 #include "finders.h"
@@ -517,7 +516,4 @@ float isQuadBaseLarge(const StructureConfig sconf, uint64_t seed,
 #ifdef __cplusplus
 }
 #endif
-
-#endif // QUADBASE_H_
-
 

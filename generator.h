@@ -1,5 +1,4 @@
-#ifndef GENERATOR_H_
-#define GENERATOR_H_
+#pragma once
 
 #include "layers.h"
 #include "biomenoise.h"
@@ -139,6 +138,4 @@ int mapApproxHeight(float *y, int *ids, const Generator *g,
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* GENERATOR_H_ */
 

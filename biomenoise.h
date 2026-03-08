@@ -1,5 +1,4 @@
-#ifndef BIOMENOISE_H_
-#define BIOMENOISE_H_
+#pragma once
 
 #include "noise.h"
 #include "layers.h"
@@ -309,8 +308,4 @@ Range getVoronoiSrcRange(Range r);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* BIOMENOISE_H_ */
-
-
 

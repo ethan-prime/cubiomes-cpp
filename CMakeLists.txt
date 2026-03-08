@@ -1,15 +1,20 @@
-cmake_minimum_required(VERSION 2.8)
-project(cubiomes)
+cmake_minimum_required(VERSION 3.16)
+project(cubiomes LANGUAGES C CXX)
+
+option(CUBIOMES_CPP_PORT "Compile selected C modules as C++" OFF)
 
 if (NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release)
 endif()
 if (WIN32)
-	set(CMAKE_C_FLAGS "-D_WIN32")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_WIN32")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_WIN32")
 endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
 set(CMAKE_C_FLAGS_DEBUG "-O0 -g3 -DDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -DDEBUG")
 
 set(HEADERS
 	finders.h
@@ -33,6 +38,13 @@ set(SOURCES
 	quadbase.c
 )
 
+if (CUBIOMES_CPP_PORT)
+	set(CUBIOMES_CPP_SOURCES
+		util.c
+	)
+	set_source_files_properties(${CUBIOMES_CPP_SOURCES} PROPERTIES LANGUAGE CXX)
+endif()
+
 add_library(objects OBJECT ${SOURCES})
 set_property(TARGET objects PROPERTY POSITION_INDEPENDENT_CODE 1)
 
@@ -41,5 +53,4 @@ add_library(cubiomes_static STATIC $<TARGET_OBJECTS:objects>)
 
 install(TARGETS cubiomes cubiomes_static DESTINATION lib)
 install(FILES ${HEADERS} DESTINATION include)
-
 

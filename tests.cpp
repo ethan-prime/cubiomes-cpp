@@ -381,7 +381,7 @@ static void canGenerateTest(int mc, int layerId)
     int idcnt[256] = {};
     int i;
     uint64_t seed;
-    Layer *layer = g.ls.layers + layerId;
+    Layer *layer = g.layered.ls.layers + layerId;
 
     for (seed = 0; seed < 1e6; seed++)
     {

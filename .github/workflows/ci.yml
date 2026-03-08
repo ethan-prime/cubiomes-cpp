@@ -76,3 +76,20 @@ jobs:
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Werror -I. .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
           ./cpp-api-smoke
+
+  pedantic-build:
+    runs-on: ubuntu-latest
+    needs: [c-api-smoke, cpp-api-smoke]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake (Pedantic)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUBIOMES_BUILD_TESTS=ON -DCUBIOMES_STRICT=OFF -DCUBIOMES_PEDANTIC=ON
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Run regression tests
+        run: ./build/cubiomes-tests

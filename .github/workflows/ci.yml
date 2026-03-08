@@ -77,6 +77,19 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Werror -I. .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
           ./cpp-api-smoke
 
+  abi-guard:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile and run ABI guard
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Werror -I. .github/ci/abi_guard.cpp -o abi-guard
+          ./abi-guard
+
   pedantic-build:
     runs-on: ubuntu-latest
     needs: [c-api-smoke, cpp-api-smoke]
@@ -93,3 +106,28 @@ jobs:
 
       - name: Run regression tests
         run: ./build/cubiomes-tests
+
+  cmake-consumer-smoke:
+    runs-on: ubuntu-latest
+    needs: [c-api-smoke, cpp-api-smoke, abi-guard]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure install build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUBIOMES_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/stage
+
+      - name: Build and install package
+        run: |
+          cmake --build build --config Release -j
+          cmake --install build
+
+      - name: Configure CMake consumer
+        run: cmake -S .github/ci/consumer-cmake -B consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/stage
+
+      - name: Build and run consumers
+        run: |
+          cmake --build consumer-build -j
+          ./consumer-build/consumer_c
+          ./consumer-build/consumer_cpp

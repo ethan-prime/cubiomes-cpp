@@ -15,3 +15,6 @@ cubiomes-tests
 
 c-api-smoke
 cpp-api-smoke
+abi-guard
+consumer-build/
+stage/

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(cubiomes LANGUAGES C CXX)
 
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
 option(CUBIOMES_BUILD_TESTS "Build regression test executable" ON)
 option(CUBIOMES_STRICT "Treat warnings as errors" OFF)
 option(CUBIOMES_PEDANTIC "Enable pedantic C++ warnings for library targets" OFF)
@@ -52,6 +55,24 @@ endif()
 
 add_library(cubiomes SHARED $<TARGET_OBJECTS:objects>)
 add_library(cubiomes_static STATIC $<TARGET_OBJECTS:objects>)
+add_library(cubiomes::cubiomes ALIAS cubiomes)
+add_library(cubiomes::cubiomes_static ALIAS cubiomes_static)
+
+target_include_directories(cubiomes
+	PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_include_directories(cubiomes_static
+	PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+
+if (UNIX)
+	target_link_libraries(cubiomes PUBLIC m pthread)
+	target_link_libraries(cubiomes_static PUBLIC m pthread)
+endif()
 
 if (CUBIOMES_BUILD_TESTS)
 	add_executable(cubiomes-tests tests.cpp)
@@ -60,10 +81,39 @@ if (CUBIOMES_BUILD_TESTS)
 	if (CUBIOMES_STRICT)
 		target_compile_options(cubiomes-tests PRIVATE -Werror)
 	endif()
-	if (UNIX)
-		target_link_libraries(cubiomes-tests PRIVATE m pthread)
-	endif()
 endif()
 
-install(TARGETS cubiomes cubiomes_static DESTINATION lib)
-install(FILES ${HEADERS} DESTINATION include)
+set(CUBIOMES_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/cubiomes")
+
+install(TARGETS cubiomes cubiomes_static
+	EXPORT cubiomesTargets
+	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+	INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(FILES ${HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+install(EXPORT cubiomesTargets
+	FILE cubiomesTargets.cmake
+	NAMESPACE cubiomes::
+	DESTINATION ${CUBIOMES_INSTALL_CMAKEDIR}
+)
+
+configure_package_config_file(
+	${CMAKE_CURRENT_SOURCE_DIR}/cmake/cubiomesConfig.cmake.in
+	${CMAKE_CURRENT_BINARY_DIR}/cubiomesConfig.cmake
+	INSTALL_DESTINATION ${CUBIOMES_INSTALL_CMAKEDIR}
+)
+
+write_basic_package_version_file(
+	${CMAKE_CURRENT_BINARY_DIR}/cubiomesConfigVersion.cmake
+	VERSION 1.0.0
+	COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+	${CMAKE_CURRENT_BINARY_DIR}/cubiomesConfig.cmake
+	${CMAKE_CURRENT_BINARY_DIR}/cubiomesConfigVersion.cmake
+	DESTINATION ${CUBIOMES_INSTALL_CMAKEDIR}
+)

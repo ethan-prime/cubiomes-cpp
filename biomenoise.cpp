@@ -698,7 +698,7 @@ int mapEndSurfaceHeight(float *y, const EndNoise *en, const SurfaceNoise *sn,
     int cw = floordiv(x + w - 1, cellsiz) - cx + 2;
     int i, j;
 
-    double *buf = malloc(sizeof(double) * yn * cw * 2);
+    double *buf = (double*) malloc(sizeof(double) * yn * cw * 2);
     double *ncol[2];
     ncol[0] = buf;
     ncol[1] = buf + yn * cw;
@@ -1971,5 +1971,4 @@ Range getVoronoiSrcRange(Range r)
     }
     return s;
 }
-
 

@@ -1,0 +1,9 @@
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/objects.dir
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/cubiomes.dir
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/cubiomes_static.dir
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/edit_cache.dir
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/rebuild_cache.dir
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/list_install_components.dir
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/install.dir
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/install/local.dir
+/home/ethan/code/cubiomes-cpp/build/CMakeFiles/install/strip.dir

@@ -29,19 +29,26 @@ set(HEADERS
 	quadbase.h
 )
 set(SOURCES
-	finders.c
-	generator.c
-	layers.c
-	biomenoise.c
-	biomes.c
-	noise.c
+	finders.cpp
+	generator.cpp
+	layers.cpp
+	biomenoise.cpp
+	biomes.cpp
+	noise.cpp
 	util.cpp
-	quadbase.c
+	quadbase.cpp
 )
 
 if (CUBIOMES_CPP_PORT)
 	set(CUBIOMES_CPP_SOURCES
+		finders.cpp
+		generator.cpp
+		layers.cpp
+		biomenoise.cpp
+		biomes.cpp
+		noise.cpp
 		util.cpp
+		quadbase.cpp
 	)
 	set_source_files_properties(${CUBIOMES_CPP_SOURCES} PROPERTIES LANGUAGE CXX)
 endif()

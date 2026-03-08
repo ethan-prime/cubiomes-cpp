@@ -75,6 +75,7 @@ benchmark(int64_t (*f)(int64_t n, void*), void *dat, double *tmin, double *tavg)
 
 uint32_t getRef(int mc, int dim, int bits, int scale, int spread, const char *path)
 {
+    (void)spread;
     Generator g;
     setupGenerator(&g, mc, 0);
 
@@ -132,8 +133,6 @@ uint32_t testAreas(int mc, int dim, int scale)
 {
     Generator g;
     setupGenerator(&g, mc, 0);
-
-    SurfaceNoise sn;
 
     double t = -now();
     uint32_t hash = 0;
@@ -232,6 +231,7 @@ int k_tot;
 struct _f_para { double v; double *buf; int x, z, w, h; };
 int _f1(void *data, int x, int z, double v)
 {
+    (void)v;
     struct _f_para d = *(struct _f_para*) data;
     d.buf[(x-d.x)*d.w + (z-d.z)] = d.v;
     k_tot++;
@@ -270,7 +270,6 @@ void testNoiseRangeFinder()
 
     struct _f_para f_p = {-1e9, buf, x, z, n, n };
     double tmin, tmax;
-    int k = k_tot;
     getParaRange(&g.bn.climate[NP_HUMIDITY], &tmin, &tmax, x, z, n, n, &f_p, _f1);
     if (fabs(tmin-bmin*1e4)>.01||fabs(tmax-bmax*1e4)>.01)
     {
@@ -315,6 +314,7 @@ int64_t bbounds[256][6][2]; // [biome][np][min/max]
 
 int _f2(void *data, int x, int z, double v)
 {
+    (void)v;
     int64_t np[6];
     Generator *g = (Generator*) data;
     int id = sampleBiomeNoise(&g->bn, np, x, -64+rand()%384, z, 0, SAMPLE_NO_SHIFT);
@@ -381,7 +381,7 @@ static void canGenerateTest(int mc, int layerId)
     int idcnt[256] = {};
     int i;
     uint64_t seed;
-    Layer *layer = g.ls.layers + layerId;
+    Layer *layer = g.layered.ls.layers + layerId;
 
     for (seed = 0; seed < 1e6; seed++)
     {
@@ -551,4 +551,3 @@ int main()
 
     return 0;
 }
-

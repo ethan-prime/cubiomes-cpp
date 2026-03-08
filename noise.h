@@ -1,5 +1,4 @@
-#ifndef NOISE_H_
-#define NOISE_H_
+#pragma once
 
 #include "rng.h"
 #include <math.h>
@@ -81,8 +80,4 @@ double sampleDoublePerlin(const DoublePerlinNoise *noise,
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* NOISE_H_ */
-
-
 

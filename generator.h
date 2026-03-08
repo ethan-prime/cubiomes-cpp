@@ -1,5 +1,4 @@
-#ifndef GENERATOR_H_
-#define GENERATOR_H_
+#pragma once
 
 #include "layers.h"
 #include "biomenoise.h"
@@ -25,18 +24,21 @@ STRUCT(Generator)
             LayerStack ls;
             Layer xlayer[5]; // buffer for custom entry layers @{1,4,16,64,256}
             Layer *entry;
-        };
-        struct { // MC 1.18
-            BiomeNoise bn;
-        };
-        struct { // MC A1.2 - B1.7
-            BiomeNoiseBeta bnb;
-            //SurfaceNoiseBeta snb;
-        };
+        } layered;
+        BiomeNoise bn; // MC 1.18+
+        BiomeNoiseBeta bnb; // MC A1.2 - B1.7
+        //SurfaceNoiseBeta snb;
     };
     NetherNoise nn; // MC 1.16
     EndNoise en; // MC 1.9
 };
+
+#ifdef __cplusplus
+static_assert(offsetof(Generator, layered) == offsetof(Generator, bn),
+    "Generator union members must stay overlaid");
+static_assert(offsetof(Generator, layered) == offsetof(Generator, bnb),
+    "Generator union members must stay overlaid");
+#endif
 
 
 #ifdef __cplusplus
@@ -97,7 +99,7 @@ int getBiomeAt(const Generator *g, int scale, int x, int y, int z);
 /**
  * Returns the default layer that corresponds to the given scale.
  * Supported scales are {0, 1, 4, 16, 64, 256}. A scale of zero indicates the
- * custom entry layer 'g->entry'.
+ * custom entry layer 'g->layered.entry'.
  * (Overworld, MC <= 1.17)
  */
 const Layer *getLayerForScale(const Generator *g, int scale);
@@ -139,6 +141,3 @@ int mapApproxHeight(float *y, int *ids, const Generator *g,
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* GENERATOR_H_ */
-

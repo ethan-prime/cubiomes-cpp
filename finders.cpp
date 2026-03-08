@@ -1512,14 +1512,14 @@ int isViableStructurePos(int structureType, Generator *g, int x, int z, uint32_t
 
     if (g->mc <= MC_1_17)
     {
-        lbiome = g->ls.layers[L_BIOME_256];
-        lshore = g->ls.layers[L_SHORE_16];
-        entry = g->entry;
+        lbiome = g->layered.ls.layers[L_BIOME_256];
+        lshore = g->layered.ls.layers[L_SHORE_16];
+        entry = g->layered.entry;
 
-        g->ls.layers[L_BIOME_256].data = (void*) data;
-        g->ls.layers[L_BIOME_256].getMap = mapViableBiome;
-        g->ls.layers[L_SHORE_16].data = (void*) data;
-        g->ls.layers[L_SHORE_16].getMap = mapViableShore;
+        g->layered.ls.layers[L_BIOME_256].data = (void*) data;
+        g->layered.ls.layers[L_BIOME_256].getMap = mapViableBiome;
+        g->layered.ls.layers[L_SHORE_16].data = (void*) data;
+        g->layered.ls.layers[L_SHORE_16].getMap = mapViableShore;
     }
 
     switch (structureType)
@@ -1541,14 +1541,14 @@ int isViableStructurePos(int structureType, Generator *g, int x, int z, uint32_t
 L_feature:
         if (g->mc <= MC_1_15)
         {
-            g->entry = &g->ls.layers[L_VORONOI_1];
+            g->layered.entry = &g->layered.ls.layers[L_VORONOI_1];
             sampleX = chunkX * 16 + 9;
             sampleZ = chunkZ * 16 + 9;
         }
         else
         {
             if (g->mc <= MC_1_17)
-                g->entry = &g->ls.layers[L_RIVER_MIX_4];
+                g->layered.entry = &g->layered.ls.layers[L_RIVER_MIX_4];
             sampleX = chunkX * 4 + 2;
             sampleZ = chunkZ * 4 + 2;
         }
@@ -1560,14 +1560,14 @@ L_feature:
     case Desert_Well:
         if (g->mc <= MC_1_15)
         {
-            g->entry = &g->ls.layers[L_VORONOI_1];
+            g->layered.entry = &g->layered.ls.layers[L_VORONOI_1];
             sampleX = x;
             sampleZ = z;
         }
         else
         {
             if (g->mc <= MC_1_17)
-                g->entry = &g->ls.layers[L_RIVER_MIX_4];
+                g->layered.entry = &g->layered.ls.layers[L_RIVER_MIX_4];
             sampleX = x >> 2;
             sampleZ = z >> 2;
         }
@@ -1582,13 +1582,13 @@ L_feature:
             if (g->mc == MC_1_15)
             {   // exclusively in MC_1_15, villages used the same biome check
                 // as other structures
-                g->entry = &g->ls.layers[L_VORONOI_1];
+                g->layered.entry = &g->layered.ls.layers[L_VORONOI_1];
                 sampleX = chunkX * 16 + 9;
                 sampleZ = chunkZ * 16 + 9;
             }
             else
             {
-                g->entry = &g->ls.layers[L_RIVER_MIX_4];
+                g->layered.entry = &g->layered.ls.layers[L_RIVER_MIX_4];
                 sampleX = chunkX * 4 + 2;
                 sampleZ = chunkZ * 4 + 2;
             }
@@ -1680,13 +1680,13 @@ L_feature:
         }
         else if (g->mc >= MC_1_16_1)
         {
-            g->entry = &g->ls.layers[L_RIVER_MIX_4];
+            g->layered.entry = &g->layered.ls.layers[L_RIVER_MIX_4];
             sampleX = chunkX * 4 + 2;
             sampleZ = chunkZ * 4 + 2;
         }
         else
         {
-            g->entry = &g->ls.layers[L_VORONOI_1];
+            g->layered.entry = &g->layered.ls.layers[L_VORONOI_1];
             sampleX = chunkX * 16 + 9;
             sampleZ = chunkZ * 16 + 9;
         }
@@ -1708,7 +1708,7 @@ L_feature:
         else if (g->mc <= MC_1_17)
         {   // Monuments require two viability checks with the ocean layer
             // branch => worth checking for potential deep ocean beforehand.
-            g->entry = &g->ls.layers[L_SHORE_16];
+            g->layered.entry = &g->layered.ls.layers[L_SHORE_16];
             id = getBiomeAt(g, 0, chunkX, 0, chunkZ);
             if (id < 0 || !isDeepOcean(id))
                 goto L_not_viable;
@@ -1802,9 +1802,9 @@ L_viable:
 L_not_viable:
     if (g->mc <= MC_1_17)
     {
-        g->ls.layers[L_BIOME_256] = lbiome;
-        g->ls.layers[L_SHORE_16] = lshore;
-        g->entry = entry;
+        g->layered.ls.layers[L_BIOME_256] = lbiome;
+        g->layered.ls.layers[L_SHORE_16] = lshore;
+        g->layered.entry = entry;
     }
     return viable;
 }
@@ -3663,7 +3663,7 @@ int checkForBiomes(
     if (g->mc <= MC_1_17 && dim == DIM_OVERWORLD)
     {
         Layer *entry = (Layer*) getLayerForScale(g, r.scale);
-        ret = checkForBiomesAtLayer(&g->ls, entry, cache, seed,
+        ret = checkForBiomesAtLayer(&g->layered.ls, entry, cache, seed,
             r.x, r.z, r.sx, r.sz, filter);
         if (ret == 0 && r.sy > 1 && cache)
         {

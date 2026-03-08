@@ -1,5 +1,4 @@
-#ifndef UTIL_H_
-#define UTIL_H_
+#pragma once
 
 
 #include <stdint.h>
@@ -58,4 +57,3 @@ int savePPM(const char* path, const unsigned char *pixels,
 }
 #endif
 
-#endif

@@ -1,5 +1,4 @@
-#ifndef LAYER_H_
-#define LAYER_H_
+#pragma once
 
 #include "noise.h"
 #include "biomes.h"
@@ -189,4 +188,3 @@ void mapVoronoiPlane(uint64_t sha, int *out, int *src,
 }
 #endif
 
-#endif /* LAYER_H_ */

@@ -1,5 +1,4 @@
-#ifndef BIOMES_H_
-#define BIOMES_H_
+#pragma once
 
 /* Minecraft versions */
 enum MCVersion
@@ -200,6 +199,4 @@ int isSnowy(int id);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* BIOMES_H_ */
 

@@ -1,5 +1,4 @@
-#ifndef RNG_H_
-#define RNG_H_
+#pragma once
 
 #define __STDC_FORMAT_MACROS 1
 
@@ -398,9 +397,5 @@ uint64_t mulInv(uint64_t x, uint64_t m)
         b += n;
     return b;
 }
-
-
-#endif /* RNG_H_ */
-
 
 

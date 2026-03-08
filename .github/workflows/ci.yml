@@ -16,14 +16,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Release, Debug]
+        include:
+          - build_type: Release
+            strict: ON
+          - build_type: Debug
+            strict: OFF
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCUBIOMES_BUILD_TESTS=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCUBIOMES_BUILD_TESTS=ON -DCUBIOMES_STRICT=${{ matrix.strict }}
 
       - name: Build library
         run: cmake --build build --config ${{ matrix.build_type }} -j
@@ -53,3 +57,39 @@ jobs:
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -I. .github/ci/c_api_smoke.c build/libcubiomes_static.a -lm -pthread -o c-api-smoke
           ./c-api-smoke
+
+  cpp-api-smoke:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUBIOMES_BUILD_TESTS=OFF
+
+      - name: Build static library
+        run: cmake --build build --config Release -j --target cubiomes_static
+
+      - name: Build and run C++ API smoke
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Werror -I. .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
+          ./cpp-api-smoke
+
+  pedantic-build:
+    runs-on: ubuntu-latest
+    needs: [c-api-smoke, cpp-api-smoke]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake (Pedantic)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUBIOMES_BUILD_TESTS=ON -DCUBIOMES_STRICT=OFF -DCUBIOMES_PEDANTIC=ON
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Run regression tests
+        run: ./build/cubiomes-tests

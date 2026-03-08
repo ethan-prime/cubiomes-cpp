@@ -1,5 +1,4 @@
-#ifndef FINDERS_H_
-#define FINDERS_H_
+#pragma once
 
 
 #include "generator.h"
@@ -837,6 +836,4 @@ Pos getLargeStructurePos(StructureConfig config, uint64_t seed, int regX, int re
 #ifdef __cplusplus
 }
 #endif
-
-#endif // FINDERS_H_
 

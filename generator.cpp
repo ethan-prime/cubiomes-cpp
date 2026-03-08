@@ -70,21 +70,21 @@ void setupGenerator(Generator *g, int mc, uint32_t flags)
 
     if (mc >= MC_B1_8 && mc <= MC_1_17)
     {
-        setupLayerStack(&g->ls, mc, flags & LARGE_BIOMES);
-        g->entry = NULL;
+        setupLayerStack(&g->layered.ls, mc, flags & LARGE_BIOMES);
+        g->layered.entry = NULL;
         if (flags & FORCE_OCEAN_VARIANTS && mc >= MC_1_13)
         {
-            g->ls.entry_16 = setupLayer(
-                g->xlayer+2, &mapOceanMixMod, mc, 1, 0, 0,
-                g->ls.entry_16, &g->ls.layers[L_ZOOM_16_OCEAN]);
+            g->layered.ls.entry_16 = setupLayer(
+                g->layered.xlayer+2, &mapOceanMixMod, mc, 1, 0, 0,
+                g->layered.ls.entry_16, &g->layered.ls.layers[L_ZOOM_16_OCEAN]);
 
-            g->ls.entry_64 = setupLayer(
-                g->xlayer+3, &mapOceanMixMod, mc, 1, 0, 0,
-                g->ls.entry_64, &g->ls.layers[L_ZOOM_64_OCEAN]);
+            g->layered.ls.entry_64 = setupLayer(
+                g->layered.xlayer+3, &mapOceanMixMod, mc, 1, 0, 0,
+                g->layered.ls.entry_64, &g->layered.ls.layers[L_ZOOM_64_OCEAN]);
 
-            g->ls.entry_256 = setupLayer(
-                g->xlayer+4, &mapOceanMixMod, mc, 1, 0, 0,
-                g->ls.entry_256, &g->ls.layers[L_OCEAN_TEMP_256]);
+            g->layered.ls.entry_256 = setupLayer(
+                g->layered.xlayer+4, &mapOceanMixMod, mc, 1, 0, 0,
+                g->layered.ls.entry_256, &g->layered.ls.layers[L_OCEAN_TEMP_256]);
         }
     }
     else if (mc >= MC_1_18)
@@ -112,7 +112,7 @@ void applySeed(Generator *g, int dim, uint64_t seed)
         }
         else if (g->mc <= MC_1_17)
         {
-            setLayerSeed(g->entry ? g->entry : g->ls.entry_1, seed);
+            setLayerSeed(g->layered.entry ? g->layered.entry : g->layered.ls.entry_1, seed);
         }
         else // if (g->mc >= MC_1_18)
         {
@@ -129,8 +129,8 @@ void applySeed(Generator *g, int dim, uint64_t seed)
     }
     if (g->mc >= MC_1_15)
     {
-        if (g->mc <= MC_1_17 && dim == DIM_OVERWORLD && !g->entry)
-            g->sha = g->ls.entry_1->startSalt;
+        if (g->mc <= MC_1_17 && dim == DIM_OVERWORLD && !g->layered.entry)
+            g->sha = g->layered.ls.entry_1->startSalt;
         else
             g->sha = getVoronoiSHA(seed);
     }
@@ -254,12 +254,12 @@ const Layer *getLayerForScale(const Generator *g, int scale)
         return NULL;
     switch (scale)
     {
-    case 0:   return g->entry;
-    case 1:   return g->ls.entry_1;
-    case 4:   return g->ls.entry_4;
-    case 16:  return g->ls.entry_16;
-    case 64:  return g->ls.entry_64;
-    case 256: return g->ls.entry_256;
+    case 0:   return g->layered.entry;
+    case 1:   return g->layered.ls.entry_1;
+    case 4:   return g->layered.ls.entry_4;
+    case 16:  return g->layered.ls.entry_16;
+    case 64:  return g->layered.ls.entry_64;
+    case 256: return g->layered.ls.entry_256;
     default:
         return NULL;
     }
@@ -765,7 +765,6 @@ int mapApproxHeight(float *y, int *ids, const Generator *g, const SurfaceNoise *
     free(depth);
     return 0;
 }
-
 
 
 

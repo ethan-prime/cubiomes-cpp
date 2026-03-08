@@ -13,23 +13,43 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Release, Debug]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCUBIOMES_BUILD_TESTS=ON
 
       - name: Build library
-        run: cmake --build build --config Release -j
-
-      - name: Build regression test harness
-        run: |
-          cc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -fwrapv -c tests.c
-          c++ -O2 -Wall -Wextra -fwrapv -c finders.cpp generator.cpp layers.cpp biomenoise.cpp biomes.cpp noise.cpp util.cpp quadbase.cpp
-          c++ tests.o finders.o generator.o layers.o biomenoise.o biomes.o noise.o util.o quadbase.o \
-            -lm -pthread -o cubiomes-tests
+        run: cmake --build build --config ${{ matrix.build_type }} -j
 
       - name: Run regression tests
-        run: ./cubiomes-tests
+        run: ./build/cubiomes-tests
+
+      - name: Performance smoke checkpoint
+        if: matrix.build_type == 'Release'
+        run: /usr/bin/time -f "cubiomes-tests elapsed=%e sec" ./build/cubiomes-tests >/dev/null
+
+  c-api-smoke:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUBIOMES_BUILD_TESTS=OFF
+
+      - name: Build static library
+        run: cmake --build build --config Release -j --target cubiomes_static
+
+      - name: Build and run C API smoke
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -I. .github/ci/c_api_smoke.c build/libcubiomes_static.a -lm -pthread -o c-api-smoke
+          ./c-api-smoke

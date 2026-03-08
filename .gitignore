@@ -12,3 +12,5 @@ docs/LayerSummary.toc
 a.out
 build*/
 cubiomes-tests
+
+c-api-smoke

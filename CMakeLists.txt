@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(cubiomes LANGUAGES C CXX)
 
-option(CUBIOMES_CPP_PORT "Compile selected C modules as C++" OFF)
+option(CUBIOMES_BUILD_TESTS "Build regression test executable" ON)
 
 if (NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release)
@@ -12,7 +12,7 @@ if (WIN32)
 endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 set(CMAKE_C_FLAGS_DEBUG "-O0 -g3 -DDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
@@ -39,25 +39,20 @@ set(SOURCES
 	quadbase.cpp
 )
 
-if (CUBIOMES_CPP_PORT)
-	set(CUBIOMES_CPP_SOURCES
-		finders.cpp
-		generator.cpp
-		layers.cpp
-		biomenoise.cpp
-		biomes.cpp
-		noise.cpp
-		util.cpp
-		quadbase.cpp
-	)
-	set_source_files_properties(${CUBIOMES_CPP_SOURCES} PROPERTIES LANGUAGE CXX)
-endif()
-
 add_library(objects OBJECT ${SOURCES})
 set_property(TARGET objects PROPERTY POSITION_INDEPENDENT_CODE 1)
 
 add_library(cubiomes SHARED $<TARGET_OBJECTS:objects>)
 add_library(cubiomes_static STATIC $<TARGET_OBJECTS:objects>)
+
+if (CUBIOMES_BUILD_TESTS)
+	add_executable(cubiomes-tests tests.cpp)
+	target_compile_definitions(cubiomes-tests PRIVATE _POSIX_C_SOURCE=200809L)
+	target_link_libraries(cubiomes-tests PRIVATE cubiomes_static)
+	if (UNIX)
+		target_link_libraries(cubiomes-tests PRIVATE m pthread)
+	endif()
+endif()
 
 install(TARGETS cubiomes cubiomes_static DESTINATION lib)
 install(FILES ${HEADERS} DESTINATION include)

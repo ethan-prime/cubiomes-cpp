@@ -1,6 +1,6 @@
 # cubiomes
 
-Cubiomes is a standalone library, with a C-compatible API and C++ implementation, that mimics the biome and feature generation of Minecraft Java Edition.
+Cubiomes is a standalone library, written in C, that mimics the biome and feature generation of Minecraft Java Edition.
 It is intended as a powerful tool to devise very fast, custom seed-finding applications and large-scale map viewers with minimal memory usage.
 
 
@@ -17,20 +17,6 @@ You should be familiar with the C programming language. A basic understanding of
 ## Getting Started
 
 This section is meant to give you a quick starting point with small example programs if you want to use this library to find your own biome-dependent features.
-
-### Build and Test
-
-```sh
-# Release build
-cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
-cmake --build build-release -j
-./build-release/cubiomes-tests
-
-# Debug build
-cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug
-cmake --build build-debug -j
-./build-debug/cubiomes-tests
-```
 
 
 ### Biome Generator
@@ -317,6 +303,7 @@ int main()
     return 0;
 }
 ```
+
 
 
 

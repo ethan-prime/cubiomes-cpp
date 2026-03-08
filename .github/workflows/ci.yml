@@ -26,8 +26,9 @@ jobs:
 
       - name: Build regression test harness
         run: |
-          cc -std=c11 -O2 -Wall -Wextra -fwrapv \
-            tests.c finders.c generator.c layers.c biomenoise.c biomes.c noise.c util.c quadbase.c \
+          cc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -fwrapv -c tests.c finders.c generator.c layers.c biomenoise.c biomes.c noise.c quadbase.c
+          c++ -O2 -Wall -Wextra -fwrapv -c util.cpp -o util.o
+          c++ tests.o finders.o generator.o layers.o biomenoise.o biomes.o noise.o util.o quadbase.o \
             -lm -pthread -o cubiomes-tests
 
       - name: Run regression tests

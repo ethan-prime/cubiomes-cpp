@@ -35,13 +35,13 @@ set(SOURCES
 	biomenoise.c
 	biomes.c
 	noise.c
-	util.c
+	util.cpp
 	quadbase.c
 )
 
 if (CUBIOMES_CPP_PORT)
 	set(CUBIOMES_CPP_SOURCES
-		util.c
+		util.cpp
 	)
 	set_source_files_properties(${CUBIOMES_CPP_SOURCES} PROPERTIES LANGUAGE CXX)
 endif()

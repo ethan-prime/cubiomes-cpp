@@ -1,8 +1,10 @@
 #CC      = gcc
+#CXX     = g++
 #AR      = ar
 ARFLAGS = cr
 override LDFLAGS = -lm
 override CFLAGS += -Wall -Wextra -fwrapv
+override CXXFLAGS += -Wall -Wextra -fwrapv
 
 ifeq ($(OS),Windows_NT)
 	override CFLAGS += -D_WIN32
@@ -54,12 +56,11 @@ biomes.o: biomes.c biomes.h
 noise.o: noise.c noise.h
 	$(CC) -c $(CFLAGS) $<
 
-util.o: util.c util.h
-	$(CC) -c $(CFLAGS) $<
+util.o: util.cpp util.h
+	$(CXX) -c $(CXXFLAGS) util.cpp -o util.o
 
 quadbase.o: quadbase.c quadbase.h
 	$(CC) -c $(CFLAGS) $<
 
 clean:
 	$(RM) *.o *.a
-

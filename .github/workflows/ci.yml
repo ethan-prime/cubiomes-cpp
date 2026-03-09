@@ -58,7 +58,7 @@ jobs:
 
       - name: Build and run C++ API smoke
         run: |
-          c++ -std=c++23 -O2 -Wall -Wextra -Werror -I. .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
+          c++ -std=c++23 -O2 -Wall -Wextra -Werror -Iinclude .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
           ./cpp-api-smoke
 
   pedantic-build:

@@ -5,6 +5,7 @@ ARFLAGS = cr
 override LDFLAGS = -lm
 override CFLAGS += -Wall -Wextra -fwrapv
 override CXXFLAGS += -std=c++23 -Wall -Wextra -fwrapv
+override CPPFLAGS += -Iinclude
 
 ifeq ($(OS),Windows_NT)
 	override CFLAGS += -D_WIN32
@@ -42,32 +43,32 @@ endif
 libcubiomes: noise.o biomes.o layers.o biomenoise.o generator.o finders.o util.o quadbase.o
 	$(AR) $(ARFLAGS) libcubiomes.a $^
 
-finders.o: finders.cpp finders.hpp
-	$(CXX) -c $(CXXFLAGS) $<
+finders.o: src/finders.cpp include/finders.hpp
+	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-generator.o: generator.cpp generator.hpp
-	$(CXX) -c $(CXXFLAGS) $<
+generator.o: src/generator.cpp include/generator.hpp
+	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-biomenoise.o: biomenoise.cpp
-	$(CXX) -c $(CXXFLAGS) $<
+biomenoise.o: src/biomenoise.cpp
+	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 biometree.o: biometree.c
 	$(CC) -c $(CFLAGS) $<
 
-layers.o: layers.cpp layers.hpp
-	$(CXX) -c $(CXXFLAGS) $<
+layers.o: src/layers.cpp include/layers.hpp
+	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-biomes.o: biomes.cpp biomes.hpp
-	$(CXX) -c $(CXXFLAGS) $<
+biomes.o: src/biomes.cpp include/biomes.hpp
+	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-noise.o: noise.cpp noise.hpp
-	$(CXX) -c $(CXXFLAGS) $<
+noise.o: src/noise.cpp include/noise.hpp
+	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-util.o: util.cpp util.hpp
-	$(CXX) -c $(CXXFLAGS) util.cpp -o util.o
+util.o: src/util.cpp include/util.hpp
+	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-quadbase.o: quadbase.cpp quadbase.hpp
-	$(CXX) -c $(CXXFLAGS) $<
+quadbase.o: src/quadbase.cpp include/quadbase.hpp
+	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 clean:
 	$(RM) *.o *.a

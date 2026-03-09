@@ -18,3 +18,5 @@ cpp-api-smoke
 abi-guard
 consumer-build/
 stage/
+compile_commands.json
+.cache/clangd/

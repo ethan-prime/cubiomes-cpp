@@ -1,7 +1,7 @@
 #pragma once
 
-#include "noise.h"
-#include "biomes.h"
+#include "noise.hpp"
+#include "biomes.hpp"
 
 
 #define LAYER_INIT_SHA          (~0ULL)

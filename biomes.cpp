@@ -1,4 +1,4 @@
-#include "biomes.h"
+#include "biomes.hpp"
 #include <inttypes.h>
 
 

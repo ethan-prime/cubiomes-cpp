@@ -1,4 +1,4 @@
-#include "generator.h"
+#include "generator.hpp"
 #include <cstdint>
 
 int main()

@@ -1,5 +1,5 @@
 
-#include "noise.h"
+#include "noise.hpp"
 
 #include <math.h>
 #include <stdio.h>

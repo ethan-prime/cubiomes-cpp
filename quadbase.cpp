@@ -1,5 +1,5 @@
-#include "quadbase.h"
-#include "util.h"
+#include "quadbase.hpp"
+#include "util.hpp"
 
 #include <string.h>
 #include <limits.h>

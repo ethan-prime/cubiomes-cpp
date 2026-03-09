@@ -1,11 +1,109 @@
 #include "util.hpp"
 #include "finders.hpp"
 
+#include <algorithm>
+#include <array>
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
+#include <ranges>
+#include <string_view>
+#include <utility>
 
 
+namespace cubiomes::detail {
+
+using McPair = std::pair<int, const char *>;
+using StrPair = std::pair<std::string_view, int>;
+
+constexpr auto kMcToStr = std::array{
+    McPair{MC_B1_7, "Beta 1.7"},
+    McPair{MC_B1_8, "Beta 1.8"},
+    McPair{MC_1_0, "1.0"},
+    McPair{MC_1_1, "1.1"},
+    McPair{MC_1_2, "1.2"},
+    McPair{MC_1_3, "1.3"},
+    McPair{MC_1_4, "1.4"},
+    McPair{MC_1_5, "1.5"},
+    McPair{MC_1_6, "1.6"},
+    McPair{MC_1_7, "1.7"},
+    McPair{MC_1_8, "1.8"},
+    McPair{MC_1_9, "1.9"},
+    McPair{MC_1_10, "1.10"},
+    McPair{MC_1_11, "1.11"},
+    McPair{MC_1_12, "1.12"},
+    McPair{MC_1_13, "1.13"},
+    McPair{MC_1_14, "1.14"},
+    McPair{MC_1_15, "1.15"},
+    McPair{MC_1_16_1, "1.16.1"},
+    McPair{MC_1_16, "1.16"},
+    McPair{MC_1_17, "1.17"},
+    McPair{MC_1_18, "1.18"},
+    McPair{MC_1_19_2, "1.19.2"},
+    McPair{MC_1_19, "1.19"},
+    McPair{MC_1_20, "1.20"},
+    McPair{MC_1_21_1, "1.21.1"},
+    McPair{MC_1_21_3, "1.21.3"},
+    McPair{MC_1_21_WD, "1.21 WD"},
+};
+
+constexpr auto kStrToMc = std::array{
+    StrPair{"1.21", MC_1_21},
+    StrPair{"1.21 WD", MC_1_21_WD},
+    StrPair{"1.21.3", MC_1_21_3},
+    StrPair{"1.21.2", MC_1_21_3}, // backwards compatibility
+    StrPair{"1.21.1", MC_1_21_1},
+    StrPair{"1.20", MC_1_20},
+    StrPair{"1.20.6", MC_1_20_6},
+    StrPair{"1.19", MC_1_19},
+    StrPair{"1.19.4", MC_1_19_4},
+    StrPair{"1.19.2", MC_1_19_2},
+    StrPair{"1.18", MC_1_18},
+    StrPair{"1.18.2", MC_1_18_2},
+    StrPair{"1.17", MC_1_17},
+    StrPair{"1.17.1", MC_1_17_1},
+    StrPair{"1.16", MC_1_16},
+    StrPair{"1.16.5", MC_1_16_5},
+    StrPair{"1.16.1", MC_1_16_1},
+    StrPair{"1.15", MC_1_15},
+    StrPair{"1.15.2", MC_1_15_2},
+    StrPair{"1.14", MC_1_14},
+    StrPair{"1.14.4", MC_1_14_4},
+    StrPair{"1.13", MC_1_13},
+    StrPair{"1.13.2", MC_1_13_2},
+    StrPair{"1.12", MC_1_12},
+    StrPair{"1.12.2", MC_1_12_2},
+    StrPair{"1.11", MC_1_11},
+    StrPair{"1.11.2", MC_1_11_2},
+    StrPair{"1.10", MC_1_10},
+    StrPair{"1.10.2", MC_1_10_2},
+    StrPair{"1.9", MC_1_9},
+    StrPair{"1.9.4", MC_1_9_4},
+    StrPair{"1.8", MC_1_8},
+    StrPair{"1.8.9", MC_1_8_9},
+    StrPair{"1.7", MC_1_7},
+    StrPair{"1.7.10", MC_1_7_10},
+    StrPair{"1.6", MC_1_6},
+    StrPair{"1.6.4", MC_1_6_4},
+    StrPair{"1.5", MC_1_5},
+    StrPair{"1.5.2", MC_1_5_2},
+    StrPair{"1.4", MC_1_4},
+    StrPair{"1.4.7", MC_1_4_7},
+    StrPair{"1.3", MC_1_3},
+    StrPair{"1.3.2", MC_1_3_2},
+    StrPair{"1.2", MC_1_2},
+    StrPair{"1.2.5", MC_1_2_5},
+    StrPair{"1.1", MC_1_1},
+    StrPair{"1.1.0", MC_1_1_0},
+    StrPair{"1.0", MC_1_0},
+    StrPair{"1.0.0", MC_1_0_0},
+    StrPair{"Beta 1.8", MC_B1_8},
+    StrPair{"Beta 1.7", MC_B1_7},
+};
+
+auto set_color(unsigned char colors[256][3], int id, uint32_t hex) -> void;
+
+} // namespace cubiomes::detail
 
 uint64_t *loadSavedSeeds(const char *fnam, uint64_t *scnt)
 {
@@ -46,93 +144,23 @@ uint64_t *loadSavedSeeds(const char *fnam, uint64_t *scnt)
 
 const char* mc2str(int mc)
 {
-    switch (mc)
-    {
-    case MC_B1_7:   return "Beta 1.7"; break;
-    case MC_B1_8:   return "Beta 1.8"; break;
-    case MC_1_0:    return "1.0"; break;
-    case MC_1_1:    return "1.1"; break;
-    case MC_1_2:    return "1.2"; break;
-    case MC_1_3:    return "1.3"; break;
-    case MC_1_4:    return "1.4"; break;
-    case MC_1_5:    return "1.5"; break;
-    case MC_1_6:    return "1.6"; break;
-    case MC_1_7:    return "1.7"; break;
-    case MC_1_8:    return "1.8"; break;
-    case MC_1_9:    return "1.9"; break;
-    case MC_1_10:   return "1.10"; break;
-    case MC_1_11:   return "1.11"; break;
-    case MC_1_12:   return "1.12"; break;
-    case MC_1_13:   return "1.13"; break;
-    case MC_1_14:   return "1.14"; break;
-    case MC_1_15:   return "1.15"; break;
-    case MC_1_16_1: return "1.16.1"; break;
-    case MC_1_16:   return "1.16"; break;
-    case MC_1_17:   return "1.17"; break;
-    case MC_1_18:   return "1.18"; break;
-    case MC_1_19_2: return "1.19.2"; break;
-    case MC_1_19:   return "1.19"; break;
-    case MC_1_20:   return "1.20"; break;
-    case MC_1_21_1: return "1.21.1"; break;
-    case MC_1_21_3: return "1.21.3"; break;
-    case MC_1_21_WD: return "1.21 WD"; break;
-    default:        return "?";
+    if (const auto it = std::ranges::find(cubiomes::detail::kMcToStr, mc, &cubiomes::detail::McPair::first);
+        it != cubiomes::detail::kMcToStr.end()) {
+        return it->second;
     }
+    return "?";
 }
 
 int str2mc(const char *s)
 {
-    if (!strcmp(s, "1.21"))     return MC_1_21;
-    if (!strcmp(s, "1.21 WD"))  return MC_1_21_WD;
-    if (!strcmp(s, "1.21.3"))   return MC_1_21_3;
-    if (!strcmp(s, "1.21.2"))   return MC_1_21_3; // backwards compatibility
-    if (!strcmp(s, "1.21.1"))   return MC_1_21_1;
-    if (!strcmp(s, "1.20"))     return MC_1_20;
-    if (!strcmp(s, "1.20.6"))   return MC_1_20_6;
-    if (!strcmp(s, "1.19"))     return MC_1_19;
-    if (!strcmp(s, "1.19.4"))   return MC_1_19_4;
-    if (!strcmp(s, "1.19.2"))   return MC_1_19_2;
-    if (!strcmp(s, "1.18"))     return MC_1_18;
-    if (!strcmp(s, "1.18.2"))   return MC_1_18_2;
-    if (!strcmp(s, "1.17"))     return MC_1_17;
-    if (!strcmp(s, "1.17.1"))   return MC_1_17_1;
-    if (!strcmp(s, "1.16"))     return MC_1_16;
-    if (!strcmp(s, "1.16.5"))   return MC_1_16_5;
-    if (!strcmp(s, "1.16.1"))   return MC_1_16_1;
-    if (!strcmp(s, "1.15"))     return MC_1_15;
-    if (!strcmp(s, "1.15.2"))   return MC_1_15_2;
-    if (!strcmp(s, "1.14"))     return MC_1_14;
-    if (!strcmp(s, "1.14.4"))   return MC_1_14_4;
-    if (!strcmp(s, "1.13"))     return MC_1_13;
-    if (!strcmp(s, "1.13.2"))   return MC_1_13_2;
-    if (!strcmp(s, "1.12"))     return MC_1_12;
-    if (!strcmp(s, "1.12.2"))   return MC_1_12_2;
-    if (!strcmp(s, "1.11"))     return MC_1_11;
-    if (!strcmp(s, "1.11.2"))   return MC_1_11_2;
-    if (!strcmp(s, "1.10"))     return MC_1_10;
-    if (!strcmp(s, "1.10.2"))   return MC_1_10_2;
-    if (!strcmp(s, "1.9"))      return MC_1_9;
-    if (!strcmp(s, "1.9.4"))    return MC_1_9_4;
-    if (!strcmp(s, "1.8"))      return MC_1_8;
-    if (!strcmp(s, "1.8.9"))    return MC_1_8_9;
-    if (!strcmp(s, "1.7"))      return MC_1_7;
-    if (!strcmp(s, "1.7.10"))   return MC_1_7_10;
-    if (!strcmp(s, "1.6"))      return MC_1_6;
-    if (!strcmp(s, "1.6.4"))    return MC_1_6_4;
-    if (!strcmp(s, "1.5"))      return MC_1_5;
-    if (!strcmp(s, "1.5.2"))    return MC_1_5_2;
-    if (!strcmp(s, "1.4"))      return MC_1_4;
-    if (!strcmp(s, "1.4.7"))    return MC_1_4_7;
-    if (!strcmp(s, "1.3"))      return MC_1_3;
-    if (!strcmp(s, "1.3.2"))    return MC_1_3_2;
-    if (!strcmp(s, "1.2"))      return MC_1_2;
-    if (!strcmp(s, "1.2.5"))    return MC_1_2_5;
-    if (!strcmp(s, "1.1"))      return MC_1_1;
-    if (!strcmp(s, "1.1.0"))    return MC_1_1_0;
-    if (!strcmp(s, "1.0"))      return MC_1_0;
-    if (!strcmp(s, "1.0.0"))    return MC_1_0_0;
-    if (!strcmp(s, "Beta 1.8")) return MC_B1_8;
-    if (!strcmp(s, "Beta 1.7")) return MC_B1_7;
+    if (s == nullptr) {
+        return MC_UNDEF;
+    }
+    const std::string_view query{s};
+    if (const auto it = std::ranges::find(cubiomes::detail::kStrToMc, query, &cubiomes::detail::StrPair::first);
+        it != cubiomes::detail::kStrToMc.end()) {
+        return it->second;
+    }
     return MC_UNDEF;
 }
 
@@ -306,7 +334,7 @@ const char* struct2str(int stype)
     return NULL;
 }
 
-static void setColor(unsigned char colors[256][3], int id, uint32_t hex)
+auto cubiomes::detail::set_color(unsigned char colors[256][3], int id, uint32_t hex) -> void
 {
     colors[id][0] = (hex >> 16) & 0xff;
     colors[id][1] = (hex >>  8) & 0xff;
@@ -323,111 +351,111 @@ void initBiomeColors(unsigned char colors[256][3])
     memset(colors, 0, 256*3);
     
     //               biome                             hex color     AMIDST
-    setColor(colors, ocean,                            0x000070);
-    setColor(colors, plains,                           0x8db360);
-    setColor(colors, desert,                           0xfa9418);
-    setColor(colors, windswept_hills,                  0x606060);
-    setColor(colors, forest,                           0x056621);
-    setColor(colors, taiga,                            0x0b6a5f); // 0b6659
-    setColor(colors, swamp,                            0x07f9b2);
-    setColor(colors, river,                            0x0000ff);
-    setColor(colors, nether_wastes,                    0x572526); // bf3b3b
-    setColor(colors, the_end,                          0x8080ff);
-    setColor(colors, frozen_ocean,                     0x7070d6);
-    setColor(colors, frozen_river,                     0xa0a0ff);
-    setColor(colors, snowy_plains,                     0xffffff);
-    setColor(colors, snowy_mountains,                  0xa0a0a0);
-    setColor(colors, mushroom_fields,                  0xff00ff);
-    setColor(colors, mushroom_field_shore,             0xa000ff);
-    setColor(colors, beach,                            0xfade55);
-    setColor(colors, desert_hills,                     0xd25f12);
-    setColor(colors, wooded_hills,                     0x22551c);
-    setColor(colors, taiga_hills,                      0x163933);
-    setColor(colors, mountain_edge,                    0x72789a);
-    setColor(colors, jungle,                           0x507b0a); // 537b09
-    setColor(colors, jungle_hills,                     0x2c4205);
-    setColor(colors, sparse_jungle,                    0x60930f); // 628b17
-    setColor(colors, deep_ocean,                       0x000030);
-    setColor(colors, stony_shore,                      0xa2a284);
-    setColor(colors, snowy_beach,                      0xfaf0c0);
-    setColor(colors, birch_forest,                     0x307444);
-    setColor(colors, birch_forest_hills,               0x1f5f32);
-    setColor(colors, dark_forest,                      0x40511a);
-    setColor(colors, snowy_taiga,                      0x31554a);
-    setColor(colors, snowy_taiga_hills,                0x243f36);
-    setColor(colors, old_growth_pine_taiga,            0x596651);
-    setColor(colors, giant_tree_taiga_hills,           0x454f3e);
-    setColor(colors, windswept_forest,                 0x5b7352); // 507050
-    setColor(colors, savanna,                          0xbdb25f);
-    setColor(colors, savanna_plateau,                  0xa79d64);
-    setColor(colors, badlands,                         0xd94515);
-    setColor(colors, wooded_badlands,                  0xb09765);
-    setColor(colors, badlands_plateau,                 0xca8c65);
-    setColor(colors, small_end_islands,                0x4b4bab); // 8080ff
-    setColor(colors, end_midlands,                     0xc9c959); // 8080ff
-    setColor(colors, end_highlands,                    0xb5b536); // 8080ff
-    setColor(colors, end_barrens,                      0x7070cc); // 8080ff
-    setColor(colors, warm_ocean,                       0x0000ac);
-    setColor(colors, lukewarm_ocean,                   0x000090);
-    setColor(colors, cold_ocean,                       0x202070);
-    setColor(colors, deep_warm_ocean,                  0x000050);
-    setColor(colors, deep_lukewarm_ocean,              0x000040);
-    setColor(colors, deep_cold_ocean,                  0x202038);
-    setColor(colors, deep_frozen_ocean,                0x404090);
-    setColor(colors, seasonal_forest,                  0x2f560f); // -
-    setColor(colors, rainforest,                       0x47840e); // -
-    setColor(colors, shrubland,                        0x789e31); // -
-    setColor(colors, the_void,                         0x000000);
-    setColor(colors, sunflower_plains,                 0xb5db88);
-    setColor(colors, desert_lakes,                     0xffbc40);
-    setColor(colors, windswept_gravelly_hills,         0x888888);
-    setColor(colors, flower_forest,                    0x2d8e49);
-    setColor(colors, taiga_mountains,                  0x339287); // 338e81
-    setColor(colors, swamp_hills,                      0x2fffda);
-    setColor(colors, ice_spikes,                       0xb4dcdc);
-    setColor(colors, modified_jungle,                  0x78a332); // 7ba331
-    setColor(colors, modified_jungle_edge,             0x88bb37); // 8ab33f
-    setColor(colors, old_growth_birch_forest,          0x589c6c);
-    setColor(colors, tall_birch_hills,                 0x47875a);
-    setColor(colors, dark_forest_hills,                0x687942);
-    setColor(colors, snowy_taiga_mountains,            0x597d72);
-    setColor(colors, old_growth_spruce_taiga,          0x818e79);
-    setColor(colors, giant_spruce_taiga_hills,         0x6d7766);
-    setColor(colors, modified_gravelly_mountains,      0x839b7a); // 789878
-    setColor(colors, windswept_savanna,                0xe5da87);
-    setColor(colors, shattered_savanna_plateau,        0xcfc58c);
-    setColor(colors, eroded_badlands,                  0xff6d3d);
-    setColor(colors, modified_wooded_badlands_plateau, 0xd8bf8d);
-    setColor(colors, modified_badlands_plateau,        0xf2b48d);
-    setColor(colors, bamboo_jungle,                    0x849500); // 768e14
-    setColor(colors, bamboo_jungle_hills,              0x5c6c04); // 3b470a
-    setColor(colors, soul_sand_valley,                 0x4d3a2e); // 5e3830
-    setColor(colors, crimson_forest,                   0x981a11); // dd0808
-    setColor(colors, warped_forest,                    0x49907b);
-    setColor(colors, basalt_deltas,                    0x645f63); // 403636
-    setColor(colors, dripstone_caves,                  0x4e3012); // -
-    setColor(colors, lush_caves,                       0x283c00); // -
-    setColor(colors, meadow,                           0x60a445); // -
-    setColor(colors, grove,                            0x47726c); // -
-    setColor(colors, snowy_slopes,                     0xc4c4c4); // -
-    setColor(colors, jagged_peaks,                     0xdcdcc8); // -
-    setColor(colors, frozen_peaks,                     0xb0b3ce); // -
-    setColor(colors, stony_peaks,                      0x7b8f74); // -
-    setColor(colors, deep_dark,                        0x031f29); // -
-    setColor(colors, mangrove_swamp,                   0x2ccc8e); // -
-    setColor(colors, cherry_grove,                     0xff91c8); // -
-    setColor(colors, pale_garden,                      0x696d95); // -
+    cubiomes::detail::set_color(colors, ocean,                            0x000070);
+    cubiomes::detail::set_color(colors, plains,                           0x8db360);
+    cubiomes::detail::set_color(colors, desert,                           0xfa9418);
+    cubiomes::detail::set_color(colors, windswept_hills,                  0x606060);
+    cubiomes::detail::set_color(colors, forest,                           0x056621);
+    cubiomes::detail::set_color(colors, taiga,                            0x0b6a5f); // 0b6659
+    cubiomes::detail::set_color(colors, swamp,                            0x07f9b2);
+    cubiomes::detail::set_color(colors, river,                            0x0000ff);
+    cubiomes::detail::set_color(colors, nether_wastes,                    0x572526); // bf3b3b
+    cubiomes::detail::set_color(colors, the_end,                          0x8080ff);
+    cubiomes::detail::set_color(colors, frozen_ocean,                     0x7070d6);
+    cubiomes::detail::set_color(colors, frozen_river,                     0xa0a0ff);
+    cubiomes::detail::set_color(colors, snowy_plains,                     0xffffff);
+    cubiomes::detail::set_color(colors, snowy_mountains,                  0xa0a0a0);
+    cubiomes::detail::set_color(colors, mushroom_fields,                  0xff00ff);
+    cubiomes::detail::set_color(colors, mushroom_field_shore,             0xa000ff);
+    cubiomes::detail::set_color(colors, beach,                            0xfade55);
+    cubiomes::detail::set_color(colors, desert_hills,                     0xd25f12);
+    cubiomes::detail::set_color(colors, wooded_hills,                     0x22551c);
+    cubiomes::detail::set_color(colors, taiga_hills,                      0x163933);
+    cubiomes::detail::set_color(colors, mountain_edge,                    0x72789a);
+    cubiomes::detail::set_color(colors, jungle,                           0x507b0a); // 537b09
+    cubiomes::detail::set_color(colors, jungle_hills,                     0x2c4205);
+    cubiomes::detail::set_color(colors, sparse_jungle,                    0x60930f); // 628b17
+    cubiomes::detail::set_color(colors, deep_ocean,                       0x000030);
+    cubiomes::detail::set_color(colors, stony_shore,                      0xa2a284);
+    cubiomes::detail::set_color(colors, snowy_beach,                      0xfaf0c0);
+    cubiomes::detail::set_color(colors, birch_forest,                     0x307444);
+    cubiomes::detail::set_color(colors, birch_forest_hills,               0x1f5f32);
+    cubiomes::detail::set_color(colors, dark_forest,                      0x40511a);
+    cubiomes::detail::set_color(colors, snowy_taiga,                      0x31554a);
+    cubiomes::detail::set_color(colors, snowy_taiga_hills,                0x243f36);
+    cubiomes::detail::set_color(colors, old_growth_pine_taiga,            0x596651);
+    cubiomes::detail::set_color(colors, giant_tree_taiga_hills,           0x454f3e);
+    cubiomes::detail::set_color(colors, windswept_forest,                 0x5b7352); // 507050
+    cubiomes::detail::set_color(colors, savanna,                          0xbdb25f);
+    cubiomes::detail::set_color(colors, savanna_plateau,                  0xa79d64);
+    cubiomes::detail::set_color(colors, badlands,                         0xd94515);
+    cubiomes::detail::set_color(colors, wooded_badlands,                  0xb09765);
+    cubiomes::detail::set_color(colors, badlands_plateau,                 0xca8c65);
+    cubiomes::detail::set_color(colors, small_end_islands,                0x4b4bab); // 8080ff
+    cubiomes::detail::set_color(colors, end_midlands,                     0xc9c959); // 8080ff
+    cubiomes::detail::set_color(colors, end_highlands,                    0xb5b536); // 8080ff
+    cubiomes::detail::set_color(colors, end_barrens,                      0x7070cc); // 8080ff
+    cubiomes::detail::set_color(colors, warm_ocean,                       0x0000ac);
+    cubiomes::detail::set_color(colors, lukewarm_ocean,                   0x000090);
+    cubiomes::detail::set_color(colors, cold_ocean,                       0x202070);
+    cubiomes::detail::set_color(colors, deep_warm_ocean,                  0x000050);
+    cubiomes::detail::set_color(colors, deep_lukewarm_ocean,              0x000040);
+    cubiomes::detail::set_color(colors, deep_cold_ocean,                  0x202038);
+    cubiomes::detail::set_color(colors, deep_frozen_ocean,                0x404090);
+    cubiomes::detail::set_color(colors, seasonal_forest,                  0x2f560f); // -
+    cubiomes::detail::set_color(colors, rainforest,                       0x47840e); // -
+    cubiomes::detail::set_color(colors, shrubland,                        0x789e31); // -
+    cubiomes::detail::set_color(colors, the_void,                         0x000000);
+    cubiomes::detail::set_color(colors, sunflower_plains,                 0xb5db88);
+    cubiomes::detail::set_color(colors, desert_lakes,                     0xffbc40);
+    cubiomes::detail::set_color(colors, windswept_gravelly_hills,         0x888888);
+    cubiomes::detail::set_color(colors, flower_forest,                    0x2d8e49);
+    cubiomes::detail::set_color(colors, taiga_mountains,                  0x339287); // 338e81
+    cubiomes::detail::set_color(colors, swamp_hills,                      0x2fffda);
+    cubiomes::detail::set_color(colors, ice_spikes,                       0xb4dcdc);
+    cubiomes::detail::set_color(colors, modified_jungle,                  0x78a332); // 7ba331
+    cubiomes::detail::set_color(colors, modified_jungle_edge,             0x88bb37); // 8ab33f
+    cubiomes::detail::set_color(colors, old_growth_birch_forest,          0x589c6c);
+    cubiomes::detail::set_color(colors, tall_birch_hills,                 0x47875a);
+    cubiomes::detail::set_color(colors, dark_forest_hills,                0x687942);
+    cubiomes::detail::set_color(colors, snowy_taiga_mountains,            0x597d72);
+    cubiomes::detail::set_color(colors, old_growth_spruce_taiga,          0x818e79);
+    cubiomes::detail::set_color(colors, giant_spruce_taiga_hills,         0x6d7766);
+    cubiomes::detail::set_color(colors, modified_gravelly_mountains,      0x839b7a); // 789878
+    cubiomes::detail::set_color(colors, windswept_savanna,                0xe5da87);
+    cubiomes::detail::set_color(colors, shattered_savanna_plateau,        0xcfc58c);
+    cubiomes::detail::set_color(colors, eroded_badlands,                  0xff6d3d);
+    cubiomes::detail::set_color(colors, modified_wooded_badlands_plateau, 0xd8bf8d);
+    cubiomes::detail::set_color(colors, modified_badlands_plateau,        0xf2b48d);
+    cubiomes::detail::set_color(colors, bamboo_jungle,                    0x849500); // 768e14
+    cubiomes::detail::set_color(colors, bamboo_jungle_hills,              0x5c6c04); // 3b470a
+    cubiomes::detail::set_color(colors, soul_sand_valley,                 0x4d3a2e); // 5e3830
+    cubiomes::detail::set_color(colors, crimson_forest,                   0x981a11); // dd0808
+    cubiomes::detail::set_color(colors, warped_forest,                    0x49907b);
+    cubiomes::detail::set_color(colors, basalt_deltas,                    0x645f63); // 403636
+    cubiomes::detail::set_color(colors, dripstone_caves,                  0x4e3012); // -
+    cubiomes::detail::set_color(colors, lush_caves,                       0x283c00); // -
+    cubiomes::detail::set_color(colors, meadow,                           0x60a445); // -
+    cubiomes::detail::set_color(colors, grove,                            0x47726c); // -
+    cubiomes::detail::set_color(colors, snowy_slopes,                     0xc4c4c4); // -
+    cubiomes::detail::set_color(colors, jagged_peaks,                     0xdcdcc8); // -
+    cubiomes::detail::set_color(colors, frozen_peaks,                     0xb0b3ce); // -
+    cubiomes::detail::set_color(colors, stony_peaks,                      0x7b8f74); // -
+    cubiomes::detail::set_color(colors, deep_dark,                        0x031f29); // -
+    cubiomes::detail::set_color(colors, mangrove_swamp,                   0x2ccc8e); // -
+    cubiomes::detail::set_color(colors, cherry_grove,                     0xff91c8); // -
+    cubiomes::detail::set_color(colors, pale_garden,                      0x696d95); // -
 }
 
 void initBiomeTypeColors(unsigned char colors[256][3])
 {
     memset(colors, 0, 256*3);
 
-    setColor(colors, Oceanic,  0x0000a0);
-    setColor(colors, Warm,     0xffc000);
-    setColor(colors, Lush,     0x00a000);
-    setColor(colors, Cold,     0x606060);
-    setColor(colors, Freezing, 0xffffff);
+    cubiomes::detail::set_color(colors, Oceanic,  0x0000a0);
+    cubiomes::detail::set_color(colors, Warm,     0xffc000);
+    cubiomes::detail::set_color(colors, Lush,     0x00a000);
+    cubiomes::detail::set_color(colors, Cold,     0x606060);
+    cubiomes::detail::set_color(colors, Freezing, 0xffffff);
 }
 
 
@@ -580,5 +608,3 @@ int savePPM(const char *path, const unsigned char *pixels, const unsigned int sx
     fclose(fp);
     return written != pixelsLen;
 }
-
-

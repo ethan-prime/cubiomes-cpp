@@ -94,5 +94,38 @@ int main()
         std::remove(path);
     }
 
+    {
+        if (!require(biomeExists(MC_1_20, pale_garden) == 0)) return 1;
+        if (!require(biomeExists(MC_1_21, pale_garden) == 1)) return 1;
+        if (!require(biomeExists(MC_1_16, soul_sand_valley) == 1)) return 1;
+        if (!require(biomeExists(MC_1_15, soul_sand_valley) == 0)) return 1;
+
+        if (!require(getCategory(MC_1_15, badlands_plateau) == mesa)) return 1;
+        if (!require(getCategory(MC_1_16, badlands_plateau) == badlands_plateau)) return 1;
+
+        if (!require(getMutated(MC_1_9, birch_forest) == tall_birch_hills)) return 1;
+        if (!require(getMutated(MC_1_11, birch_forest) == tall_birch_forest)) return 1;
+
+        if (!require(isShallowOcean(ocean) == 1)) return 1;
+        if (!require(isDeepOcean(deep_ocean) == 1)) return 1;
+        if (!require(isOceanic(deep_cold_ocean) == 1)) return 1;
+        if (!require(isOceanic(plains) == 0)) return 1;
+
+        if (!require(isSnowy(snowy_tundra) == 1)) return 1;
+        if (!require(isSnowy(desert) == 0)) return 1;
+        if (!require(isMesa(eroded_badlands) == 1)) return 1;
+        if (!require(isMesa(forest) == 0)) return 1;
+
+        using cubiomes::cpp::Biome;
+        using cubiomes::cpp::Version;
+        if (!require(cubiomes::cpp::biome_exists(Version::V1_20, Biome::Plains))) return 1;
+        if (!require(cubiomes::cpp::is_overworld(Version::V1_20, Biome::Plains))) return 1;
+        if (!require(cubiomes::cpp::dimension_kind(Biome::EndHighlands) == cubiomes::cpp::DimensionKind::End)) return 1;
+        if (!require(cubiomes::cpp::mutated_biome(Version::V1_20, Biome::Forest) == Biome::FlowerForest)) return 1;
+        if (!require(cubiomes::cpp::biome_category(Version::V1_20, Biome::SnowyTaiga) == Biome::Taiga)) return 1;
+        if (!require(cubiomes::cpp::is_oceanic_biome(Biome::DeepOcean))) return 1;
+        if (!require(cubiomes::cpp::is_snowy_biome(Biome::SnowyTundra))) return 1;
+    }
+
     return 0;
 }

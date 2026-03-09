@@ -1,14 +1,183 @@
 #include "biomes.hpp"
-#include <inttypes.h>
+
+#include <array>
+#include <cstdint>
+
+namespace {
+
+template <std::size_t N>
+constexpr auto make_flag_table(std::initializer_list<int> ids) -> std::array<bool, N>
+{
+    std::array<bool, N> table{};
+    for (const auto id : ids) {
+        if (id >= 0 && static_cast<std::size_t>(id) < N) {
+            table[static_cast<std::size_t>(id)] = true;
+        }
+    }
+    return table;
+}
+
+constexpr auto has_id(const std::array<bool, 256> &table, int id) -> bool
+{
+    return id >= 0 && id < 256 && table[static_cast<std::size_t>(id)];
+}
+
+constexpr auto is_between(const int value, const int min_value, const int max_value) -> bool
+{
+    return value >= min_value && value <= max_value;
+}
+
+constexpr auto kModern18Biomes = make_flag_table<256>({
+    ocean, plains, desert, mountains, forest, taiga, swamp, river, nether_wastes, the_end,
+    frozen_ocean, frozen_river, snowy_tundra, mushroom_fields, beach, jungle, jungle_edge,
+    deep_ocean, stone_shore, snowy_beach, birch_forest, dark_forest, snowy_taiga,
+    giant_tree_taiga, wooded_mountains, savanna, savanna_plateau, badlands,
+    wooded_badlands_plateau, warm_ocean, lukewarm_ocean, cold_ocean, deep_warm_ocean,
+    deep_lukewarm_ocean, deep_cold_ocean, deep_frozen_ocean, sunflower_plains,
+    gravelly_mountains, flower_forest, ice_spikes, tall_birch_forest,
+    giant_spruce_taiga, shattered_savanna, eroded_badlands, bamboo_jungle,
+    dripstone_caves, lush_caves, meadow, grove, snowy_slopes, stony_peaks,
+    jagged_peaks, frozen_peaks, soul_sand_valley, crimson_forest, warped_forest,
+    basalt_deltas, small_end_islands, end_midlands, end_highlands, end_barrens
+});
+
+constexpr auto kBeta17Biomes = make_flag_table<256>({
+    plains, desert, forest, taiga, swamp, snowy_tundra, savanna, seasonal_forest,
+    rainforest, shrubland, ocean, frozen_ocean
+});
+
+constexpr auto kPreB18Excluded = make_flag_table<256>({
+    frozen_ocean, frozen_river, snowy_tundra, mushroom_fields, mushroom_field_shore, the_end
+});
+
+constexpr auto kPre10Excluded = make_flag_table<256>({
+    snowy_mountains, beach, desert_hills, wooded_hills, taiga_hills, mountain_edge
+});
+
+constexpr auto kMutatedSince17 = make_flag_table<256>({
+    sunflower_plains, desert_lakes, gravelly_mountains, flower_forest, taiga_mountains,
+    swamp_hills, ice_spikes, modified_jungle, modified_jungle_edge, tall_birch_forest,
+    tall_birch_hills, dark_forest_hills, snowy_taiga_mountains, giant_spruce_taiga,
+    giant_spruce_taiga_hills, modified_gravelly_mountains, shattered_savanna,
+    shattered_savanna_plateau, eroded_badlands, modified_wooded_badlands_plateau,
+    modified_badlands_plateau
+});
+
+constexpr auto kMesaBiomes = make_flag_table<256>({
+    badlands, eroded_badlands, modified_wooded_badlands_plateau, modified_badlands_plateau,
+    wooded_badlands_plateau, badlands_plateau
+});
+
+constexpr auto kSnowyBiomes = make_flag_table<256>({
+    frozen_ocean, frozen_river, snowy_tundra, snowy_mountains, snowy_beach, snowy_taiga,
+    snowy_taiga_hills, ice_spikes, snowy_taiga_mountains
+});
+
+constexpr auto kNeverOverworldBiomes = make_flag_table<256>({
+    nether_wastes, the_end, deep_warm_ocean, the_void
+});
+
+constexpr auto kDimensionByBiome = [] {
+    std::array<int, 256> table{};
+    table.fill(DIM_OVERWORLD);
+    table[the_end] = DIM_END;
+    table[nether_wastes] = DIM_NETHER;
+
+    for (int id = small_end_islands; id <= end_barrens; ++id) {
+        table[static_cast<std::size_t>(id)] = DIM_END;
+    }
+    for (int id = soul_sand_valley; id <= basalt_deltas; ++id) {
+        table[static_cast<std::size_t>(id)] = DIM_NETHER;
+    }
+    return table;
+}();
+
+constexpr std::uint64_t kShallowOceanBits =
+    (1ULL << ocean) |
+    (1ULL << frozen_ocean) |
+    (1ULL << warm_ocean) |
+    (1ULL << lukewarm_ocean) |
+    (1ULL << cold_ocean);
+
+constexpr std::uint64_t kDeepOceanBits =
+    (1ULL << deep_ocean) |
+    (1ULL << deep_warm_ocean) |
+    (1ULL << deep_lukewarm_ocean) |
+    (1ULL << deep_cold_ocean) |
+    (1ULL << deep_frozen_ocean);
+
+constexpr std::uint64_t kOceanBits = kShallowOceanBits | kDeepOceanBits;
+
+constexpr auto has_legacy_ocean_bit(const int id, const std::uint64_t mask) -> bool
+{
+    return static_cast<std::uint32_t>(id) < 64U && ((1ULL << id) & mask) != 0;
+}
+
+constexpr auto kMutatedByBase = [] {
+    std::array<int, 256> table{};
+    table.fill(none);
+    table[plains] = sunflower_plains;
+    table[desert] = desert_lakes;
+    table[mountains] = gravelly_mountains;
+    table[forest] = flower_forest;
+    table[taiga] = taiga_mountains;
+    table[swamp] = swamp_hills;
+    table[snowy_tundra] = ice_spikes;
+    table[jungle] = modified_jungle;
+    table[jungle_edge] = modified_jungle_edge;
+    table[dark_forest] = dark_forest_hills;
+    table[snowy_taiga] = snowy_taiga_mountains;
+    table[giant_tree_taiga] = giant_spruce_taiga;
+    table[giant_tree_taiga_hills] = giant_spruce_taiga_hills;
+    table[wooded_mountains] = modified_gravelly_mountains;
+    table[savanna] = shattered_savanna;
+    table[savanna_plateau] = shattered_savanna_plateau;
+    table[badlands] = eroded_badlands;
+    table[wooded_badlands_plateau] = modified_wooded_badlands_plateau;
+    table[badlands_plateau] = modified_badlands_plateau;
+    return table;
+}();
+
+constexpr auto kCategoryByBiome = [] {
+    std::array<int, 256> table{};
+    table.fill(none);
+
+    const auto set = [&table](std::initializer_list<int> ids, const int category) {
+        for (const auto id : ids) {
+            if (id >= 0 && id < 256) {
+                table[static_cast<std::size_t>(id)] = category;
+            }
+        }
+    };
+
+    set({beach, snowy_beach}, beach);
+    set({desert, desert_hills, desert_lakes}, desert);
+    set({mountains, mountain_edge, wooded_mountains, gravelly_mountains, modified_gravelly_mountains}, mountains);
+    set({forest, wooded_hills, birch_forest, birch_forest_hills, dark_forest, flower_forest, tall_birch_forest, tall_birch_hills, dark_forest_hills}, forest);
+    set({snowy_tundra, snowy_mountains, ice_spikes}, snowy_tundra);
+    set({jungle, jungle_hills, jungle_edge, modified_jungle, modified_jungle_edge, bamboo_jungle, bamboo_jungle_hills}, jungle);
+    set({badlands, eroded_badlands, modified_wooded_badlands_plateau, modified_badlands_plateau}, mesa);
+    set({wooded_badlands_plateau, badlands_plateau}, badlands_plateau);
+    set({mushroom_fields, mushroom_field_shore}, mushroom_fields);
+    set({stone_shore}, stone_shore);
+    set({ocean, frozen_ocean, deep_ocean, warm_ocean, lukewarm_ocean, cold_ocean, deep_warm_ocean, deep_lukewarm_ocean, deep_cold_ocean, deep_frozen_ocean}, ocean);
+    set({plains, sunflower_plains}, plains);
+    set({river, frozen_river}, river);
+    set({savanna, savanna_plateau, shattered_savanna, shattered_savanna_plateau}, savanna);
+    set({swamp, swamp_hills}, swamp);
+    set({taiga, taiga_hills, snowy_taiga, snowy_taiga_hills, giant_tree_taiga, giant_tree_taiga_hills, taiga_mountains, snowy_taiga_mountains, giant_spruce_taiga, giant_spruce_taiga_hills}, taiga);
+    set({nether_wastes, soul_sand_valley, crimson_forest, warped_forest, basalt_deltas}, nether_wastes);
+    return table;
+}();
+
+} // namespace
 
 
 int biomeExists(int mc, int id)
 {
     if (mc >= MC_1_18)
     {
-        if (id >= soul_sand_valley && id <= basalt_deltas)
-            return 1;
-        if (id >= small_end_islands && id <= end_barrens)
+        if (has_id(kModern18Biomes, id))
             return 1;
 
         if (id == pale_garden)
@@ -20,163 +189,39 @@ int biomeExists(int mc, int id)
         if (id == deep_dark || id == mangrove_swamp)
             return mc >= MC_1_19_2;
 
-        switch (id)
-        {
-        case ocean:
-        case plains:
-        case desert:
-        case mountains:                 // windswept_hills
-        case forest:
-        case taiga:
-        case swamp:
-        case river:
-        case nether_wastes:
-        case the_end:
-        case frozen_ocean:
-        case frozen_river:
-        case snowy_tundra:              // snowy_plains
-        case mushroom_fields:
-        case beach:
-        case jungle:
-        case jungle_edge:               // sparse_jungle
-        case deep_ocean:
-        case stone_shore:               // stony_shore
-        case snowy_beach:
-        case birch_forest:
-        case dark_forest:
-        case snowy_taiga:
-        case giant_tree_taiga:          // old_growth_pine_taiga
-        case wooded_mountains:          // windswept_forest
-        case savanna:
-        case savanna_plateau:
-        case badlands:
-        case wooded_badlands_plateau:   // wooded_badlands
-        case warm_ocean:
-        case lukewarm_ocean:
-        case cold_ocean:
-        case deep_warm_ocean:
-        case deep_lukewarm_ocean:
-        case deep_cold_ocean:
-        case deep_frozen_ocean:
-        case sunflower_plains:
-        case gravelly_mountains:        // windswept_gravelly_hills
-        case flower_forest:
-        case ice_spikes:
-        case tall_birch_forest:         // old_growth_birch_forest
-        case giant_spruce_taiga:        // old_growth_spruce_taiga
-        case shattered_savanna:         // windswept_savanna
-        case eroded_badlands:
-        case bamboo_jungle:
-        case dripstone_caves:
-        case lush_caves:
-        case meadow:
-        case grove:
-        case snowy_slopes:
-        case stony_peaks:
-        case jagged_peaks:
-        case frozen_peaks:
-            return 1;
-        default:
-            return 0;
-        }
+        return 0;
     }
 
     if (mc <= MC_B1_7)
-    {
-        switch(id)
-        {
-        case plains:
-        case desert:
-        case forest:
-        case taiga:
-        case swamp:
-        case snowy_tundra:
-        case savanna:
-        case seasonal_forest:
-        case rainforest:
-        case shrubland:
-        // we treat areas below the sea level as oceans
-        case ocean:
-        case frozen_ocean:
-            return 1;
-        default:
+        return has_id(kBeta17Biomes, id);
+
+    if (mc <= MC_B1_8) {
+        if (has_id(kPreB18Excluded, id))
             return 0;
-        }
     }
 
-    if (mc <= MC_B1_8)
-    {
-        switch (id)
-        {
-        case frozen_ocean:
-        case frozen_river:
-        case snowy_tundra:
-        case mushroom_fields:
-        case mushroom_field_shore:
-        case the_end:
+    if (mc <= MC_1_0) {
+        if (has_id(kPre10Excluded, id))
             return 0;
-        }
-    }
-    if (mc <= MC_1_0)
-    {
-        switch (id)
-        {
-        case snowy_mountains:
-        case beach:
-        case desert_hills:
-        case wooded_hills:
-        case taiga_hills:
-        case mountain_edge:
-            return 0;
-        }
     }
 
-    if (id >= ocean             && id <= mountain_edge)     return 1;
-    if (id >= jungle            && id <= jungle_hills)      return mc >= MC_1_2;
-    if (id >= jungle_edge       && id <= badlands_plateau)  return mc >= MC_1_7;
-    if (id >= small_end_islands && id <= end_barrens)       return mc >= MC_1_9;
-    if (id >= warm_ocean        && id <= deep_frozen_ocean) return mc >= MC_1_13;
+    if (is_between(id, ocean, mountain_edge)) return 1;
+    if (is_between(id, jungle, jungle_hills)) return mc >= MC_1_2;
+    if (is_between(id, jungle_edge, badlands_plateau)) return mc >= MC_1_7;
+    if (is_between(id, small_end_islands, end_barrens)) return mc >= MC_1_9;
+    if (is_between(id, warm_ocean, deep_frozen_ocean)) return mc >= MC_1_13;
 
-    switch (id)
-    {
-    case the_void:
+    if (id == the_void)
         return mc >= MC_1_9;
-    case sunflower_plains:
-    case desert_lakes:
-    case gravelly_mountains:
-    case flower_forest:
-    case taiga_mountains:
-    case swamp_hills:
-    case ice_spikes:
-    case modified_jungle:
-    case modified_jungle_edge:
-    case tall_birch_forest:
-    case tall_birch_hills:
-    case dark_forest_hills:
-    case snowy_taiga_mountains:
-    case giant_spruce_taiga:
-    case giant_spruce_taiga_hills:
-    case modified_gravelly_mountains:
-    case shattered_savanna:
-    case shattered_savanna_plateau:
-    case eroded_badlands:
-    case modified_wooded_badlands_plateau:
-    case modified_badlands_plateau:
+    if (has_id(kMutatedSince17, id))
         return mc >= MC_1_7;
-    case bamboo_jungle:
-    case bamboo_jungle_hills:
+    if (id == bamboo_jungle || id == bamboo_jungle_hills)
         return mc >= MC_1_14;
-    case soul_sand_valley:
-    case crimson_forest:
-    case warped_forest:
-    case basalt_deltas:
+    if (is_between(id, soul_sand_valley, basalt_deltas))
         return mc >= MC_1_16_1;
-    case dripstone_caves:
-    case lush_caves:
+    if (id == dripstone_caves || id == lush_caves)
         return mc >= MC_1_17;
-    default:
-        return 0;
-    }
+    return 0;
 }
 
 int isOverworld(int mc, int id)
@@ -184,186 +229,48 @@ int isOverworld(int mc, int id)
     if (!biomeExists(mc, id))
         return 0;
 
-    if (id >= small_end_islands && id <= end_barrens) return 0;
-    if (id >= soul_sand_valley && id <= basalt_deltas) return 0;
+    if (is_between(id, small_end_islands, end_barrens)) return 0;
+    if (is_between(id, soul_sand_valley, basalt_deltas)) return 0;
+    if (has_id(kNeverOverworldBiomes, id)) return 0;
 
-    switch (id)
-    {
-    case nether_wastes:
-    case the_end:
-        return 0;
-    case frozen_ocean:
+    if (id == frozen_ocean)
         return mc <= MC_1_6 || mc >= MC_1_13;
-    case mountain_edge:
+    if (id == mountain_edge)
         return mc <= MC_1_6;
-    case deep_warm_ocean:
-    case the_void:
-        return 0;
-    case tall_birch_forest:
+    if (id == tall_birch_forest)
         return mc <= MC_1_8 || mc >= MC_1_11;
-    case dripstone_caves:
-    case lush_caves:
+    if (id == dripstone_caves || id == lush_caves)
         return mc >= MC_1_18;
-    }
     return 1;
 }
 
 int getDimension(int id)
 {
-    if (id >= small_end_islands && id <= end_barrens) return DIM_END;
-    if (id >= soul_sand_valley && id <= basalt_deltas) return DIM_NETHER;
-    if (id == the_end) return DIM_END;
-    if (id == nether_wastes) return DIM_NETHER;
+    if (id >= 0 && id < 256)
+        return kDimensionByBiome[static_cast<std::size_t>(id)];
     return DIM_OVERWORLD;
 }
 
 int getMutated(int mc, int id)
 {
-    switch (id)
-    {
-    case plains:                    return sunflower_plains;
-    case desert:                    return desert_lakes;
-    case mountains:                 return gravelly_mountains;
-    case forest:                    return flower_forest;
-    case taiga:                     return taiga_mountains;
-    case swamp:                     return swamp_hills;
-    case snowy_tundra:              return ice_spikes;
-    case jungle:                    return modified_jungle;
-    case jungle_edge:               return modified_jungle_edge;
-    // emulate MC-98995
-    case birch_forest:
+    if (id == birch_forest) {
+        // emulate MC-98995
         return (mc >= MC_1_9 && mc <= MC_1_10) ? tall_birch_hills : tall_birch_forest;
-    case birch_forest_hills:
-        return (mc >= MC_1_9 && mc <= MC_1_10) ? none : tall_birch_hills;
-    case dark_forest:               return dark_forest_hills;
-    case snowy_taiga:               return snowy_taiga_mountains;
-    case giant_tree_taiga:          return giant_spruce_taiga;
-    case giant_tree_taiga_hills:    return giant_spruce_taiga_hills;
-    case wooded_mountains:          return modified_gravelly_mountains;
-    case savanna:                   return shattered_savanna;
-    case savanna_plateau:           return shattered_savanna_plateau;
-    case badlands:                  return eroded_badlands;
-    case wooded_badlands_plateau:   return modified_wooded_badlands_plateau;
-    case badlands_plateau:          return modified_badlands_plateau;
-    default:
-        return none;
     }
+    if (id == birch_forest_hills)
+        return (mc >= MC_1_9 && mc <= MC_1_10) ? none : tall_birch_hills;
+    if (id < 0 || id >= 256)
+        return none;
+    return kMutatedByBase[static_cast<std::size_t>(id)];
 }
 
 int getCategory(int mc, int id)
 {
-    switch (id)
-    {
-    case beach:
-    case snowy_beach:
-        return beach;
-
-    case desert:
-    case desert_hills:
-    case desert_lakes:
-        return desert;
-
-    case mountains:
-    case mountain_edge:
-    case wooded_mountains:
-    case gravelly_mountains:
-    case modified_gravelly_mountains:
-        return mountains;
-
-    case forest:
-    case wooded_hills:
-    case birch_forest:
-    case birch_forest_hills:
-    case dark_forest:
-    case flower_forest:
-    case tall_birch_forest:
-    case tall_birch_hills:
-    case dark_forest_hills:
-        return forest;
-
-    case snowy_tundra:
-    case snowy_mountains:
-    case ice_spikes:
-        return snowy_tundra;
-
-    case jungle:
-    case jungle_hills:
-    case jungle_edge:
-    case modified_jungle:
-    case modified_jungle_edge:
-    case bamboo_jungle:
-    case bamboo_jungle_hills:
-        return jungle;
-
-    case badlands:
-    case eroded_badlands:
-    case modified_wooded_badlands_plateau:
-    case modified_badlands_plateau:
-        return mesa;
-
-    case wooded_badlands_plateau:
-    case badlands_plateau:
+    if (id == wooded_badlands_plateau || id == badlands_plateau)
         return mc <= MC_1_15 ? mesa : badlands_plateau;
-
-    case mushroom_fields:
-    case mushroom_field_shore:
-        return mushroom_fields;
-
-    case stone_shore:
-        return stone_shore;
-
-    case ocean:
-    case frozen_ocean:
-    case deep_ocean:
-    case warm_ocean:
-    case lukewarm_ocean:
-    case cold_ocean:
-    case deep_warm_ocean:
-    case deep_lukewarm_ocean:
-    case deep_cold_ocean:
-    case deep_frozen_ocean:
-        return ocean;
-
-    case plains:
-    case sunflower_plains:
-        return plains;
-
-    case river:
-    case frozen_river:
-        return river;
-
-    case savanna:
-    case savanna_plateau:
-    case shattered_savanna:
-    case shattered_savanna_plateau:
-        return savanna;
-
-    case swamp:
-    case swamp_hills:
-        return swamp;
-
-    case taiga:
-    case taiga_hills:
-    case snowy_taiga:
-    case snowy_taiga_hills:
-    case giant_tree_taiga:
-    case giant_tree_taiga_hills:
-    case taiga_mountains:
-    case snowy_taiga_mountains:
-    case giant_spruce_taiga:
-    case giant_spruce_taiga_hills:
-        return taiga;
-
-    case nether_wastes:
-    case soul_sand_valley:
-    case crimson_forest:
-    case warped_forest:
-    case basalt_deltas:
-        return nether_wastes;
-
-    default:
+    if (id < 0 || id >= 256)
         return none;
-    }
+    return kCategoryByBiome[static_cast<std::size_t>(id)];
 }
 
 int areSimilar(int mc, int id1, int id2)
@@ -381,75 +288,25 @@ int areSimilar(int mc, int id1, int id2)
 
 int isMesa(int id)
 {
-    switch (id)
-    {
-    case badlands:
-    case eroded_badlands:
-    case modified_wooded_badlands_plateau:
-    case modified_badlands_plateau:
-    case wooded_badlands_plateau:
-    case badlands_plateau:
-        return 1;
-    default:
-        return 0;
-    }
+    return has_id(kMesaBiomes, id);
 }
 
 int isShallowOcean(int id)
 {
-    const uint64_t shallow_bits =
-            (1ULL << ocean) |
-            (1ULL << frozen_ocean) |
-            (1ULL << warm_ocean) |
-            (1ULL << lukewarm_ocean) |
-            (1ULL << cold_ocean);
-    return (uint32_t) id < 64 && ((1ULL << id) & shallow_bits);
+    return has_legacy_ocean_bit(id, kShallowOceanBits);
 }
 
 int isDeepOcean(int id)
 {
-    const uint64_t deep_bits =
-            (1ULL << deep_ocean) |
-            (1ULL << deep_warm_ocean) |
-            (1ULL << deep_lukewarm_ocean) |
-            (1ULL << deep_cold_ocean) |
-            (1ULL << deep_frozen_ocean);
-    return (uint32_t) id < 64 && ((1ULL << id) & deep_bits);
+    return has_legacy_ocean_bit(id, kDeepOceanBits);
 }
 
 int isOceanic(int id)
 {
-    const uint64_t ocean_bits =
-            (1ULL << ocean) |
-            (1ULL << frozen_ocean) |
-            (1ULL << warm_ocean) |
-            (1ULL << lukewarm_ocean) |
-            (1ULL << cold_ocean) |
-            (1ULL << deep_ocean) |
-            (1ULL << deep_warm_ocean) |
-            (1ULL << deep_lukewarm_ocean) |
-            (1ULL << deep_cold_ocean) |
-            (1ULL << deep_frozen_ocean);
-    return (uint32_t) id < 64 && ((1ULL << id) & ocean_bits);
+    return has_legacy_ocean_bit(id, kOceanBits);
 }
 
 int isSnowy(int id)
 {
-    switch (id)
-    {
-    case frozen_ocean:
-    case frozen_river:
-    case snowy_tundra:
-    case snowy_mountains:
-    case snowy_beach:
-    case snowy_taiga:
-    case snowy_taiga_hills:
-    case ice_spikes:
-    case snowy_taiga_mountains:
-        return 1;
-    default:
-        return 0;
-    }
+    return has_id(kSnowyBiomes, id);
 }
-
-

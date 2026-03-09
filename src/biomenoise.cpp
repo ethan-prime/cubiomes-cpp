@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <float.h>
+#include <vector>
 
 
 //==============================================================================
@@ -432,7 +433,7 @@ int mapEndBiome(const EndNoise *en, int *out, int x, int z, int w, int h)
     int64_t i, j;
     int64_t hw = w + 26;
     int64_t hh = h + 26;
-    uint16_t *hmap = (uint16_t*) malloc(sizeof(*hmap) * hw * hh);
+    std::vector<uint16_t> hmap(static_cast<std::size_t>(hw * hh), 0);
 
     for (j = 0; j < hh; j++)
     {
@@ -450,7 +451,7 @@ int mapEndBiome(const EndNoise *en, int *out, int x, int z, int w, int h)
                     ) % 13 + 9;
                 v *= v;
             }
-            hmap[(int64_t)j*hw+i] = v;
+            hmap[static_cast<std::size_t>(j * hw + i)] = v;
         }
     }
 
@@ -477,13 +478,11 @@ int mapEndBiome(const EndNoise *en, int *out, int x, int z, int w, int h)
                         continue;
                     }
                 }
-                uint16_t *p_elev = &hmap[(hz/2-z)*hw + (hx/2-x)];
+                uint16_t *p_elev = &hmap[static_cast<std::size_t>((hz/2-z) * hw + (hx/2-x))];
                 out[j*w+i] = getEndBiome(hx, hz, p_elev, hw);
             }
         }
     }
-
-    free(hmap);
     return 0;
 }
 
@@ -494,8 +493,8 @@ int mapEnd(const EndNoise *en, int *out, int x, int z, int w, int h)
     int64_t cw = ((x+w) >> 2) + 1 - cx;
     int64_t ch = ((z+h) >> 2) + 1 - cz;
 
-    int *buf = (int*) malloc(sizeof(int) * cw * ch);
-    mapEndBiome(en, buf, cx, cz, cw, ch);
+    std::vector<int> buf(static_cast<std::size_t>(cw * ch), 0);
+    mapEndBiome(en, buf.data(), cx, cz, static_cast<int>(cw), static_cast<int>(ch));
 
     int i, j;
 
@@ -505,12 +504,10 @@ int mapEnd(const EndNoise *en, int *out, int x, int z, int w, int h)
         for (i = 0; i < w; i++)
         {
             int ci = ((x+i) >> 2) - cx;
-            int v = buf[cj*cw+ci];
+            int v = buf[static_cast<std::size_t>(cj*cw+ci)];
             out[j*w+i] = v;
         }
     }
-
-    free(buf);
     return 0;
 }
 
@@ -698,10 +695,10 @@ int mapEndSurfaceHeight(float *y, const EndNoise *en, const SurfaceNoise *sn,
     int cw = floordiv(x + w - 1, cellsiz) - cx + 2;
     int i, j;
 
-    double *buf = (double*) malloc(sizeof(double) * yn * cw * 2);
+    std::vector<double> buf(static_cast<std::size_t>(yn * cw * 2), 0.0);
     double *ncol[2];
-    ncol[0] = buf;
-    ncol[1] = buf + yn * cw;
+    ncol[0] = buf.data();
+    ncol[1] = buf.data() + yn * cw;
 
     for (i = 0; i < cw; i++)
         sampleNoiseColumnEnd(ncol[1]+i*yn, sn, en, cx+i, cz+0, y0, y1);
@@ -731,8 +728,6 @@ int mapEndSurfaceHeight(float *y, const EndNoise *en, const SurfaceNoise *sn,
                 y0, y1, 4, dx, dz);
         }
     }
-
-    free(buf);
     return 0;
 }
 
@@ -1971,4 +1966,3 @@ Range getVoronoiSrcRange(Range r)
     }
     return s;
 }
-

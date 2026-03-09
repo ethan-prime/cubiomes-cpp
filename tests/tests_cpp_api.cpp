@@ -26,6 +26,16 @@ int main()
     assert(cubiomes::legacy::str2mc(nullptr) == MC_UNDEF);
     assert(std::string_view(cubiomes::legacy::mc2str(MC_1_20)) == "1.20");
     assert(std::string_view(cubiomes::legacy::mc2str(MC_UNDEF)) == "?");
+    {
+        using cubiomes::cpp::Biome;
+        using cubiomes::cpp::DimensionKind;
+        using cubiomes::cpp::Version;
+        static_assert(cubiomes::cpp::to_raw(Version::V1_20) == MC_1_20);
+        static_assert(cubiomes::cpp::to_raw(Biome::Plains) == plains);
+        assert(cubiomes::cpp::biome_exists(Version::V1_20, Biome::Plains));
+        assert(cubiomes::cpp::is_overworld(Version::V1_20, Biome::Plains));
+        assert(cubiomes::cpp::dimension_kind(Biome::EndHighlands) == DimensionKind::End);
+    }
 
     ::Generator cg;
     cubiomes::legacy::setupGenerator(&cg, MC_1_20, 0);

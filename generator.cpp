@@ -1,10 +1,75 @@
 #include "generator.hpp"
 #include "layers.hpp"
 
+#include <algorithm>
+#include <cstdint>
+#include <memory>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
+namespace cubiomes::cpp {
+
+auto setup_generator(Generator &g, std::int32_t mc, std::uint32_t flags) -> void
+{
+    setupGenerator(&g, static_cast<int>(mc), flags);
+}
+
+auto apply_seed(Generator &g, std::int32_t dim, std::uint64_t seed) -> void
+{
+    applySeed(&g, static_cast<int>(dim), seed);
+}
+
+auto min_cache_size(
+    const Generator &g,
+    std::int32_t scale,
+    std::int32_t sx,
+    std::int32_t sy,
+    std::int32_t sz
+) -> std::size_t
+{
+    return getMinCacheSize(&g, static_cast<int>(scale), static_cast<int>(sx), static_cast<int>(sy), static_cast<int>(sz));
+}
+
+auto generate_biomes(const Generator &g, Range r) -> GenerateBiomesResult
+{
+    GenerateBiomesResult result{};
+    auto *cache = allocCache(&g, r);
+    if (cache == nullptr) {
+        result.status = -1;
+        return result;
+    }
+    auto deleter = [](int *p) { std::free(p); };
+    std::unique_ptr<int, decltype(deleter)> guard{cache, deleter};
+
+    result.status = genBiomes(&g, cache, r);
+    if (result.status != 0) {
+        return result;
+    }
+
+    const std::size_t sy = r.sy == 0 ? 1U : static_cast<std::size_t>(r.sy);
+    const std::size_t count = static_cast<std::size_t>(r.sx) *
+        static_cast<std::size_t>(r.sz) * sy;
+    result.biomes.resize(count);
+    std::transform(cache, cache + count, result.biomes.begin(), [](int id) {
+        return static_cast<std::int32_t>(id);
+    });
+    return result;
+}
+
+auto biome_at(
+    const Generator &g,
+    std::int32_t scale,
+    std::int32_t x,
+    std::int32_t y,
+    std::int32_t z
+) -> std::int32_t
+{
+    return static_cast<std::int32_t>(getBiomeAt(&g, static_cast<int>(scale), static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)));
+}
+
+} // namespace cubiomes::cpp
 
 
 int mapOceanMixMod(const Layer * l, int * out, int x, int z, int w, int h)
@@ -765,7 +830,6 @@ int mapApproxHeight(float *y, int *ids, const Generator *g, const SurfaceNoise *
     free(depth);
     return 0;
 }
-
 
 
 

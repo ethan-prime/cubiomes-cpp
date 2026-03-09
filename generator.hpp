@@ -3,6 +3,10 @@
 #include "layers.hpp"
 #include "biomenoise.hpp"
 
+#include <cstdint>
+#include <span>
+#include <vector>
+
 // generator flags
 enum
 {
@@ -132,4 +136,44 @@ int genArea(const Layer *layer, int *out, int areaX, int areaZ, int areaWidth, i
 int mapApproxHeight(float *y, int *ids, const Generator *g,
     const SurfaceNoise *sn, int x, int z, int w, int h);
 
+namespace cubiomes::cpp {
+
+struct GenerateBiomesResult {
+    std::int32_t status{};
+    std::vector<std::int32_t> biomes{};
+};
+
+auto setup_generator(Generator &g, std::int32_t mc, std::uint32_t flags) -> void;
+auto apply_seed(Generator &g, std::int32_t dim, std::uint64_t seed) -> void;
+auto min_cache_size(
+    const Generator &g,
+    std::int32_t scale,
+    std::int32_t sx,
+    std::int32_t sy,
+    std::int32_t sz
+) -> std::size_t;
+auto generate_biomes(const Generator &g, Range r) -> GenerateBiomesResult;
+auto biome_at(
+    const Generator &g,
+    std::int32_t scale,
+    std::int32_t x,
+    std::int32_t y,
+    std::int32_t z
+) -> std::int32_t;
+
+} // namespace cubiomes::cpp
+
+namespace cubiomes::legacy {
+using ::allocCache;
+using ::applySeed;
+using ::genArea;
+using ::genBiomes;
+using ::getBiomeAt;
+using ::getLayerForScale;
+using ::getMinCacheSize;
+using ::mapApproxHeight;
+using ::setupGenerator;
+using ::setupLayer;
+using ::setupLayerStack;
+} // namespace cubiomes::legacy
 

@@ -1,4 +1,5 @@
 #include "cpp_api.hpp"
+#include "generator.hpp"
 #include "util.hpp"
 
 #include <cassert>
@@ -22,15 +23,15 @@ int main()
     assert(std::string_view(cubiomes::legacy::mc2str(MC_UNDEF)) == "?");
 
     ::Generator cg;
-    setupGenerator(&cg, MC_1_20, 0);
-    applySeed(&cg, DIM_OVERWORLD, 262);
+    cubiomes::legacy::setupGenerator(&cg, MC_1_20, 0);
+    cubiomes::legacy::applySeed(&cg, DIM_OVERWORLD, 262);
 
     Range r = {4, -8, -8, 16, 16, 15, 1};
     std::vector<int> from_cpp = cppg.generate(r);
 
-    int *cache = allocCache(&cg, r);
+    int *cache = cubiomes::legacy::allocCache(&cg, r);
     assert(cache != nullptr);
-    if (genBiomes(&cg, cache, r) != 0) {
+    if (cubiomes::legacy::genBiomes(&cg, cache, r) != 0) {
         std::free(cache);
         return 1;
     }
@@ -43,6 +44,25 @@ int main()
         assert(from_cpp[i] == cache[i]);
     }
     std::free(cache);
+
+    ::Generator cg_cpp{};
+    cubiomes::cpp::setup_generator(cg_cpp, MC_1_20, 0);
+    cubiomes::cpp::apply_seed(cg_cpp, DIM_OVERWORLD, 262);
+    const auto generated = cubiomes::cpp::generate_biomes(cg_cpp, r);
+    if (generated.status != 0) {
+        return 1;
+    }
+    if (generated.biomes.size() != n) {
+        return 1;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        if (generated.biomes[i] != static_cast<std::int32_t>(from_cpp[i])) {
+            return 1;
+        }
+    }
+    if (cubiomes::cpp::biome_at(cg_cpp, 1, 0, 63, 0) != mushroom_fields) {
+        return 1;
+    }
 
     bool threw = false;
     try {

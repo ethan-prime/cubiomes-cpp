@@ -12,3 +12,6 @@ target_link_libraries(consumer_c PRIVATE cubiomes::cubiomes_static)
 
 add_executable(consumer_cpp consumer_cpp.cpp)
 target_link_libraries(consumer_cpp PRIVATE cubiomes::cubiomes_static)
+
+add_executable(consumer_cpp_api consumer_cpp_api.cpp)
+target_link_libraries(consumer_cpp_api PRIVATE cubiomes::cubiomes_cpp)

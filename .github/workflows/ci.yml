@@ -33,7 +33,9 @@ jobs:
         run: cmake --build build --config ${{ matrix.build_type }} -j
 
       - name: Run regression tests
-        run: ./build/cubiomes-tests
+        run: |
+          ./build/cubiomes-tests
+          ./build/cubiomes-cpp-api-tests
 
       - name: Performance smoke checkpoint
         if: matrix.build_type == 'Release'
@@ -110,7 +112,9 @@ jobs:
         run: |
           TIDY_BIN=$(command -v clang-tidy-18 || command -v clang-tidy)
           "$TIDY_BIN" --version
-          "$TIDY_BIN" -p build *.cpp
+          for f in *.cpp; do
+            "$TIDY_BIN" -quiet -p build --extra-arg-before=-w "$f"
+          done
 
   pedantic-build:
     runs-on: ubuntu-latest
@@ -153,3 +157,4 @@ jobs:
           cmake --build consumer-build -j
           ./consumer-build/consumer_c
           ./consumer-build/consumer_cpp
+          ./consumer-build/consumer_cpp_api

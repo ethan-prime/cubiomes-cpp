@@ -11,16 +11,26 @@
 #include <memory>
 #include <vector>
 
+namespace {
+
+auto setup_generator_impl(Generator &g, int mc, std::uint32_t flags) -> void;
+auto apply_seed_impl(Generator &g, int dim, std::uint64_t seed) -> void;
+auto min_cache_size_impl(const Generator &g, int scale, int sx, int sy, int sz) -> std::size_t;
+auto gen_biomes_impl(const Generator &g, int *cache, Range r) -> int;
+auto biome_at_impl(const Generator &g, int scale, int x, int y, int z) -> int;
+
+} // namespace
+
 namespace cubiomes::cpp {
 
 auto setup_generator(Generator &g, std::int32_t mc, std::uint32_t flags) -> void
 {
-    setupGenerator(&g, static_cast<int>(mc), flags);
+    setup_generator_impl(g, static_cast<int>(mc), flags);
 }
 
 auto apply_seed(Generator &g, std::int32_t dim, std::uint64_t seed) -> void
 {
-    applySeed(&g, static_cast<int>(dim), seed);
+    apply_seed_impl(g, static_cast<int>(dim), seed);
 }
 
 auto min_cache_size(
@@ -31,7 +41,13 @@ auto min_cache_size(
     std::int32_t sz
 ) -> std::size_t
 {
-    return getMinCacheSize(&g, static_cast<int>(scale), static_cast<int>(sx), static_cast<int>(sy), static_cast<int>(sz));
+    return min_cache_size_impl(
+        g,
+        static_cast<int>(scale),
+        static_cast<int>(sx),
+        static_cast<int>(sy),
+        static_cast<int>(sz)
+    );
 }
 
 auto generate_biomes(const Generator &g, Range r) -> GenerateBiomesResult
@@ -44,7 +60,7 @@ auto generate_biomes(const Generator &g, Range r) -> GenerateBiomesResult
     }
     std::vector<int> cache(cache_len, 0);
 
-    result.status = genBiomes(&g, cache.data(), r);
+    result.status = static_cast<std::int32_t>(gen_biomes_impl(g, cache.data(), r));
     if (result.status != 0) {
         return result;
     }
@@ -65,7 +81,15 @@ auto biome_at(
     std::int32_t z
 ) -> std::int32_t
 {
-    return static_cast<std::int32_t>(getBiomeAt(&g, static_cast<int>(scale), static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)));
+    return static_cast<std::int32_t>(
+        biome_at_impl(
+            g,
+            static_cast<int>(scale),
+            static_cast<int>(x),
+            static_cast<int>(y),
+            static_cast<int>(z)
+        )
+    );
 }
 
 auto generate_biomes_into(
@@ -182,96 +206,117 @@ int mapOceanMixMod(const Layer * l, int * out, int x, int z, int w, int h)
 
 void setupGenerator(Generator *g, int mc, uint32_t flags)
 {
-    g->mc = mc;
-    g->dim = DIM_UNDEF;
-    g->flags = flags;
-    g->seed = 0;
-    g->sha = 0;
+    setup_generator_impl(*g, mc, flags);
+}
+
+namespace {
+
+auto setup_generator_impl(Generator &g, int mc, std::uint32_t flags) -> void
+{
+    g.mc = mc;
+    g.dim = DIM_UNDEF;
+    g.flags = flags;
+    g.seed = 0;
+    g.sha = 0;
 
     if (mc >= MC_B1_8 && mc <= MC_1_17)
     {
-        setupLayerStack(&g->layered.ls, mc, flags & LARGE_BIOMES);
-        g->layered.entry = nullptr;
+        setupLayerStack(&g.layered.ls, mc, flags & LARGE_BIOMES);
+        g.layered.entry = nullptr;
         if (flags & FORCE_OCEAN_VARIANTS && mc >= MC_1_13)
         {
-            g->layered.ls.entry_16 = setupLayer(
-                g->layered.xlayer+2, &mapOceanMixMod, mc, 1, 0, 0,
-                g->layered.ls.entry_16, &g->layered.ls.layers[L_ZOOM_16_OCEAN]);
+            g.layered.ls.entry_16 = setupLayer(
+                g.layered.xlayer+2, &mapOceanMixMod, mc, 1, 0, 0,
+                g.layered.ls.entry_16, &g.layered.ls.layers[L_ZOOM_16_OCEAN]);
 
-            g->layered.ls.entry_64 = setupLayer(
-                g->layered.xlayer+3, &mapOceanMixMod, mc, 1, 0, 0,
-                g->layered.ls.entry_64, &g->layered.ls.layers[L_ZOOM_64_OCEAN]);
+            g.layered.ls.entry_64 = setupLayer(
+                g.layered.xlayer+3, &mapOceanMixMod, mc, 1, 0, 0,
+                g.layered.ls.entry_64, &g.layered.ls.layers[L_ZOOM_64_OCEAN]);
 
-            g->layered.ls.entry_256 = setupLayer(
-                g->layered.xlayer+4, &mapOceanMixMod, mc, 1, 0, 0,
-                g->layered.ls.entry_256, &g->layered.ls.layers[L_OCEAN_TEMP_256]);
+            g.layered.ls.entry_256 = setupLayer(
+                g.layered.xlayer+4, &mapOceanMixMod, mc, 1, 0, 0,
+                g.layered.ls.entry_256, &g.layered.ls.layers[L_OCEAN_TEMP_256]);
         }
     }
     else if (mc >= MC_1_18)
     {
-        initBiomeNoise(&g->bn, mc);
+        initBiomeNoise(&g.bn, mc);
     }
     else
     {
-        g->bnb.mc = mc;
+        g.bnb.mc = mc;
     }
 }
+} // namespace
 
 void applySeed(Generator *g, int dim, uint64_t seed)
 {
-    g->dim = dim;
-    g->seed = seed;
-    g->sha = 0;
+    apply_seed_impl(*g, dim, seed);
+}
+
+namespace {
+auto apply_seed_impl(Generator &g, int dim, std::uint64_t seed) -> void
+{
+    g.dim = dim;
+    g.seed = seed;
+    g.sha = 0;
 
     if (dim == DIM_OVERWORLD)
     {
-        if (g->mc <= MC_B1_7)
+        if (g.mc <= MC_B1_7)
         {
-            setBetaBiomeSeed(&g->bnb, seed);
-            //initSurfaceNoiseBeta(&g->snb, g->seed);
+            setBetaBiomeSeed(&g.bnb, seed);
+            //initSurfaceNoiseBeta(&g.snb, g.seed);
         }
-        else if (g->mc <= MC_1_17)
+        else if (g.mc <= MC_1_17)
         {
-            setLayerSeed(g->layered.entry ? g->layered.entry : g->layered.ls.entry_1, seed);
+            setLayerSeed(g.layered.entry ? g.layered.entry : g.layered.ls.entry_1, seed);
         }
-        else // if (g->mc >= MC_1_18)
+        else // if (g.mc >= MC_1_18)
         {
-            setBiomeSeed(&g->bn, seed, g->flags & LARGE_BIOMES);
+            setBiomeSeed(&g.bn, seed, g.flags & LARGE_BIOMES);
         }
     }
-    else if (dim == DIM_NETHER && g->mc >= MC_1_16_1)
+    else if (dim == DIM_NETHER && g.mc >= MC_1_16_1)
     {
-        setNetherSeed(&g->nn, seed);
+        setNetherSeed(&g.nn, seed);
     }
-    else if (dim == DIM_END && g->mc >= MC_1_9)
+    else if (dim == DIM_END && g.mc >= MC_1_9)
     {
-        setEndSeed(&g->en, g->mc, seed);
+        setEndSeed(&g.en, g.mc, seed);
     }
-    if (g->mc >= MC_1_15)
+    if (g.mc >= MC_1_15)
     {
-        if (g->mc <= MC_1_17 && dim == DIM_OVERWORLD && !g->layered.entry)
-            g->sha = g->layered.ls.entry_1->startSalt;
+        if (g.mc <= MC_1_17 && dim == DIM_OVERWORLD && !g.layered.entry)
+            g.sha = g.layered.ls.entry_1->startSalt;
         else
-            g->sha = getVoronoiSHA(seed);
+            g.sha = getVoronoiSHA(seed);
     }
 }
+} // namespace
 
 
 size_t getMinCacheSize(const Generator *g, int scale, int sx, int sy, int sz)
 {
+    return min_cache_size_impl(*g, scale, sx, sy, sz);
+}
+
+namespace {
+auto min_cache_size_impl(const Generator &g, int scale, int sx, int sy, int sz) -> std::size_t
+{
     if (sy == 0)
         sy = 1;
     size_t len = (size_t)sx * sz * sy;
-    if (g->mc <= MC_B1_7 && scale <= 4 && !(g->flags & NO_BETA_OCEAN))
+    if (g.mc <= MC_B1_7 && scale <= 4 && !(g.flags & NO_BETA_OCEAN))
     {
         int cellwidth = scale >> 1;
         int smin = (sx < sz ? sx : sz);
         int slen = ((smin >> (2 >> cellwidth)) + 1) * 2 + 1;
         len += slen * sizeof(SeaLevelColumnNoiseBeta);
     }
-    else if (g->mc >= MC_B1_8 && g->mc <= MC_1_17 && g->dim == DIM_OVERWORLD)
+    else if (g.mc >= MC_B1_8 && g.mc <= MC_1_17 && g.dim == DIM_OVERWORLD)
     {   // recursively check the layer stack for the max buffer
-        const Layer *entry = getLayerForScale(g, scale);
+        const Layer *entry = getLayerForScale(&g, scale);
         if (!entry) {
             std::fprintf(stderr, "getMinCacheSize(): failed to determine scaled entry\n");
             return 0;
@@ -279,7 +324,7 @@ size_t getMinCacheSize(const Generator *g, int scale, int sx, int sy, int sz)
         size_t len2d = getMinLayerCacheSize(entry, sx, sz);
         len += len2d - sx*sz;
     }
-    else if ((g->mc >= MC_1_18 || g->dim != DIM_OVERWORLD) && scale <= 1)
+    else if ((g.mc >= MC_1_18 || g.dim != DIM_OVERWORLD) && scale <= 1)
     {   // allocate space for temporary copy of voronoi source
         sx = ((sx+3) >> 2) + 2;
         sy = ((sy+3) >> 2) + 2;
@@ -289,10 +334,11 @@ size_t getMinCacheSize(const Generator *g, int scale, int sx, int sy, int sz)
 
     return len;
 }
+} // namespace
 
 int *allocCache(const Generator *g, Range r)
 {
-    size_t len = getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz);
+    const size_t len = min_cache_size_impl(*g, r.scale, r.sx, r.sy, r.sz);
     if (len == 0)
         return nullptr;
     return static_cast<int*>(std::calloc(len, sizeof(int)));
@@ -300,14 +346,20 @@ int *allocCache(const Generator *g, Range r)
 
 int genBiomes(const Generator *g, int *cache, Range r)
 {
+    return gen_biomes_impl(*g, cache, r);
+}
+
+namespace {
+auto gen_biomes_impl(const Generator &g, int *cache, Range r) -> int
+{
     int err = 1;
     int64_t i, k;
 
-    if (g->dim == DIM_OVERWORLD)
+    if (g.dim == DIM_OVERWORLD)
     {
-        if (g->mc >= MC_B1_8 && g->mc <= MC_1_17)
+        if (g.mc >= MC_B1_8 && g.mc <= MC_1_17)
         {
-            const Layer *entry = getLayerForScale(g, r.scale);
+            const Layer *entry = getLayerForScale(&g, r.scale);
             if (!entry) return -1;
             err = genArea(entry, cache, r.x, r.z, r.sx, r.sz);
             if (err) return err;
@@ -318,21 +370,21 @@ int genBiomes(const Generator *g, int *cache, Range r)
             }
             return 0;
         }
-        else if (g->mc >= MC_1_18)
+        else if (g.mc >= MC_1_18)
         {
-            return genBiomeNoiseScaled(&g->bn, cache, r, g->sha);
+            return genBiomeNoiseScaled(&g.bn, cache, r, g.sha);
         }
-        else // g->mc <= MC_B1_7
+        else // g.mc <= MC_B1_7
         {
-            if (g->flags & NO_BETA_OCEAN)
+            if (g.flags & NO_BETA_OCEAN)
             {
-                err = genBiomeNoiseBetaScaled(&g->bnb, nullptr, cache, r);
+                err = genBiomeNoiseBetaScaled(&g.bnb, nullptr, cache, r);
             }
             else
             {
                 SurfaceNoiseBeta snb;
-                initSurfaceNoiseBeta(&snb, g->seed);
-                err = genBiomeNoiseBetaScaled(&g->bnb, &snb, cache, r);
+                initSurfaceNoiseBeta(&snb, g.seed);
+                err = genBiomeNoiseBetaScaled(&g.bnb, &snb, cache, r);
             }
             if (err) return err;
             for (k = 1; k < r.sy; k++)
@@ -343,27 +395,40 @@ int genBiomes(const Generator *g, int *cache, Range r)
             return 0;
         }
     }
-    else if (g->dim == DIM_NETHER)
+    else if (g.dim == DIM_NETHER)
     {
-        return genNetherScaled(&g->nn, cache, r, g->mc, g->sha);
+        return genNetherScaled(&g.nn, cache, r, g.mc, g.sha);
     }
-    else if (g->dim == DIM_END)
+    else if (g.dim == DIM_END)
     {
-        return genEndScaled(&g->en, cache, r, g->mc, g->sha);
+        return genEndScaled(&g.en, cache, r, g.mc, g.sha);
     }
 
     return err;
 }
+} // namespace
 
 int getBiomeAt(const Generator *g, int scale, int x, int y, int z)
 {
-    Range r = {scale, x, z, 1, 1, y, 1};
-    const auto generated = cubiomes::cpp::generate_biomes(*g, r);
-    if (generated.status != 0 || generated.biomes.empty()) {
+    return biome_at_impl(*g, scale, x, y, z);
+}
+
+namespace {
+auto biome_at_impl(const Generator &g, int scale, int x, int y, int z) -> int
+{
+    const Range r{scale, x, z, 1, 1, y, 1};
+    const auto cache_len = min_cache_size_impl(g, r.scale, r.sx, r.sy, r.sz);
+    if (cache_len == 0) {
         return none;
     }
-    return static_cast<int>(generated.biomes.front());
+
+    std::vector<int> cache(cache_len, 0);
+    if (gen_biomes_impl(g, cache.data(), r) != 0 || cache.empty()) {
+        return none;
+    }
+    return cache.front();
 }
+} // namespace
 
 const Layer *getLayerForScale(const Generator *g, int scale)
 {
@@ -789,8 +854,8 @@ int mapApproxHeight(float *y, int *ids, const Generator *g, const SurfaceNoise *
     int ii, jj;
 
     Range r = {4, x-2, z-2, w+5, h+5, 0, 1};
-    std::vector<int> cache(getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz), 0);
-    genBiomes(g, cache.data(), r);
+    std::vector<int> cache(min_cache_size_impl(*g, r.scale, r.sx, r.sy, r.sz), 0);
+    gen_biomes_impl(*g, cache.data(), r);
 
     for (j = 0; j < h; j++)
     {

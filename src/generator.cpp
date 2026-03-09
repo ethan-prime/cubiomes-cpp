@@ -156,13 +156,21 @@ int mapOceanMixMod(const Layer * l, int * out, int x, int z, int w, int h)
 {
     std::int64_t i = 0;
     std::int64_t j = 0;
-    l->p2->getMap(l->p2, out, x, z, w, h);
+    (void)cubiomes::cpp::invoke_layer_map(
+        *l->p2,
+        std::span<int>{out, static_cast<std::size_t>(w) * static_cast<std::size_t>(h)},
+        x, z, w, h
+    );
 
     const auto count = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
     std::vector<int> otyp(count);
     std::memcpy(otyp.data(), out, count * sizeof(int));
 
-    l->p->getMap(l->p, out, x, z, w, h);
+    (void)cubiomes::cpp::invoke_layer_map(
+        *l->p,
+        std::span<int>{out, static_cast<std::size_t>(w) * static_cast<std::size_t>(h)},
+        x, z, w, h
+    );
 
 
     for (j = 0; j < h; j++)
@@ -785,7 +793,14 @@ size_t getMinLayerCacheSize(const Layer *layer, int sizeX, int sizeZ)
 int genArea(const Layer *layer, int *out, int areaX, int areaZ, int areaWidth, int areaHeight)
 {
     std::fill_n(out, static_cast<std::size_t>(areaWidth) * static_cast<std::size_t>(areaHeight), 0);
-    return layer->getMap(layer, out, areaX, areaZ, areaWidth, areaHeight);
+    return cubiomes::cpp::invoke_layer_map(
+        *layer,
+        std::span<int>{out, static_cast<std::size_t>(areaWidth) * static_cast<std::size_t>(areaHeight)},
+        areaX,
+        areaZ,
+        areaWidth,
+        areaHeight
+    );
 }
 
 

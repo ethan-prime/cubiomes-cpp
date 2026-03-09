@@ -1,52 +1,187 @@
 #include "layers.hpp"
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <math.h>
-#include <float.h>
+
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <type_traits>
+
+namespace {
+
+static_assert(std::is_same_v<std::int32_t, int>, "cubiomes layers expect 32-bit int storage");
+
+auto set_layer_seed_impl(Layer &layer, std::uint64_t world_seed) -> void;
+auto voronoi_sha_impl(std::uint64_t seed) -> std::uint64_t;
+auto voronoi_access_3d_impl(std::uint64_t sha, int x, int y, int z) -> cubiomes::cpp::VoronoiCell3D;
+auto map_voronoi_plane_impl(
+    std::uint64_t sha,
+    std::span<int> out,
+    std::span<int> src,
+    int x,
+    int z,
+    int w,
+    int h,
+    int y,
+    int px,
+    int pz,
+    int pw,
+    int ph
+) -> void;
+
+} // namespace
+
+namespace cubiomes::cpp {
+
+auto set_layer_seed(Layer &layer, std::uint64_t world_seed) -> void
+{
+    set_layer_seed_impl(layer, world_seed);
+}
+
+auto voronoi_sha(std::uint64_t world_seed) -> std::uint64_t
+{
+    return voronoi_sha_impl(world_seed);
+}
+
+auto voronoi_access_3d(std::uint64_t sha, std::int32_t x, std::int32_t y, std::int32_t z) -> VoronoiCell3D
+{
+    return voronoi_access_3d_impl(sha, x, y, z);
+}
+
+auto map_voronoi_plane(
+    std::uint64_t sha,
+    std::span<std::int32_t> out,
+    std::span<std::int32_t> src,
+    std::int32_t x,
+    std::int32_t z,
+    std::int32_t w,
+    std::int32_t h,
+    std::int32_t y,
+    std::int32_t px,
+    std::int32_t pz,
+    std::int32_t pw,
+    std::int32_t ph
+) -> std::int32_t
+{
+    const auto out_required = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+    const auto src_required = static_cast<std::size_t>(pw) * static_cast<std::size_t>(ph);
+    if (out.size() < out_required || src.size() < src_required) {
+        return -1;
+    }
+    std::span<int> out_i{
+        reinterpret_cast<int*>(out.data()),
+        static_cast<std::size_t>(out_required)
+    };
+    std::span<int> src_i{
+        reinterpret_cast<int*>(src.data()),
+        static_cast<std::size_t>(src_required)
+    };
+    map_voronoi_plane_impl(sha, out_i, src_i, x, z, w, h, y, px, pz, pw, ph);
+    return 0;
+}
+
+auto invoke_layer_map(
+    const Layer &layer,
+    std::span<int> out,
+    std::int32_t x,
+    std::int32_t z,
+    std::int32_t w,
+    std::int32_t h
+) -> std::int32_t
+{
+    const auto min_count = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+    if (out.size() < min_count) {
+        return -1;
+    }
+    return layer.getMap(&layer, out.data(), x, z, w, h);
+}
+
+auto LayerRuntime::run(
+    std::span<int> out,
+    std::int32_t x,
+    std::int32_t z,
+    std::int32_t w,
+    std::int32_t h
+) const -> std::int32_t
+{
+    return invoke_layer_map(layer_, out, x, z, w, h);
+}
+
+auto VoronoiMapper::access_3d(std::int32_t x, std::int32_t y, std::int32_t z) const -> VoronoiCell3D
+{
+    return voronoi_access_3d(sha_, x, y, z);
+}
+
+auto VoronoiMapper::map_plane(
+    std::span<std::int32_t> out,
+    std::span<std::int32_t> src,
+    std::int32_t x,
+    std::int32_t z,
+    std::int32_t w,
+    std::int32_t h,
+    std::int32_t y,
+    std::int32_t px,
+    std::int32_t pz,
+    std::int32_t pw,
+    std::int32_t ph
+) const -> std::int32_t
+{
+    return map_voronoi_plane(sha_, out, src, x, z, w, h, y, px, pz, pw, ph);
+}
+
+} // namespace cubiomes::cpp
 
 
 //==============================================================================
 // Essentials
 //==============================================================================
 
-void setLayerSeed(Layer *layer, uint64_t worldSeed)
+void setLayerSeed(Layer *layer, std::uint64_t worldSeed)
 {
-    if (layer->p2 != NULL)
-        setLayerSeed(layer->p2, worldSeed);
+    set_layer_seed_impl(*layer, worldSeed);
+}
 
-    if (layer->p != NULL)
-        setLayerSeed(layer->p, worldSeed);
+namespace {
 
-    if (layer->noise != NULL)
+auto set_layer_seed_impl(Layer &layer, std::uint64_t world_seed) -> void
+{
+    if (layer.p2 != nullptr)
+        set_layer_seed_impl(*layer.p2, world_seed);
+
+    if (layer.p != nullptr)
+        set_layer_seed_impl(*layer.p, world_seed);
+
+    if (layer.noise != nullptr)
     {
-        uint64_t s;
-        setSeed(&s, worldSeed);
-        perlinInit((PerlinNoise*)layer->noise, &s);
+        std::uint64_t s{};
+        setSeed(&s, world_seed);
+        perlinInit(static_cast<PerlinNoise*>(layer.noise), &s);
     }
 
-    uint64_t ls = layer->layerSalt;
+    const std::uint64_t ls = layer.layerSalt;
     if (ls == 0)
     {   // Pre 1.13 the Hills branch stays zero-initialized
-        layer->startSalt = 0;
-        layer->startSeed = 0;
+        layer.startSalt = 0;
+        layer.startSeed = 0;
     }
     else if (ls == LAYER_INIT_SHA)
     {   // Post 1.14 Voronoi uses SHA256 for initialization
-        layer->startSalt = getVoronoiSHA(worldSeed);
-        layer->startSeed = 0;
+        layer.startSalt = voronoi_sha_impl(world_seed);
+        layer.startSeed = 0;
     }
     else
     {
-        uint64_t st = worldSeed;
+        std::uint64_t st = world_seed;
         st = mcStepSeed(st, ls);
         st = mcStepSeed(st, ls);
         st = mcStepSeed(st, ls);
 
-        layer->startSalt = st;
-        layer->startSeed = mcStepSeed(st, 0);
+        layer.startSalt = st;
+        layer.startSeed = mcStepSeed(st, 0);
     }
 }
+} // namespace
 
 
 //==============================================================================
@@ -54,16 +189,16 @@ void setLayerSeed(Layer *layer, uint64_t worldSeed)
 //==============================================================================
 
 // convenience function used in several layers
-static inline int isAny4(int id, int a, int b, int c, int d)
+constexpr auto isAny4(int id, int a, int b, int c, int d) noexcept -> int
 {
     return id == a || id == b || id == c || id == d;
 }
 
 int mapContinent(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
-    int64_t i, j;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
+    std::int64_t i, j;
 
     for (j = 0; j < h; j++)
     {
@@ -76,7 +211,7 @@ int mapContinent(const Layer * l, int * out, int x, int z, int w, int h)
 
     if (x > -w && x <= 0 && z > -h && z <= 0)
     {
-        out[-z * (int64_t)w - x] = 1;
+        out[-z * (std::int64_t)w - x] = 1;
     }
 
     return 0;
@@ -86,22 +221,22 @@ int mapZoomFuzzy(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x >> 1;
     int pZ = z >> 1;
-    int64_t pW = ((x + w) >> 1) - pX + 1;
-    int64_t pH = ((z + h) >> 1) - pZ + 1;
-    int64_t i, j;
+    std::int64_t pW = ((x + w) >> 1) - pX + 1;
+    std::int64_t pH = ((z + h) >> 1) - pZ + 1;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    int64_t newW = pW * 2;
-    //int64_t newH = pH * 2;
-    int64_t idx;
+    std::int64_t newW = pW * 2;
+    //std::int64_t newH = pH * 2;
+    std::int64_t idx;
     int v00, v01, v10, v11;
     int *buf = out + pW * pH; //(int*) malloc((newW+1)*(newH+1)*sizeof(*buf));
 
-    const uint32_t st = (uint32_t)l->startSalt;
-    const uint32_t ss = (uint32_t)l->startSeed;
+    const std::uint32_t st = (std::uint32_t)l->startSalt;
+    const std::uint32_t ss = (std::uint32_t)l->startSeed;
 
     for (j = 0; j < pH; j++)
     {
@@ -128,7 +263,7 @@ int mapZoomFuzzy(const Layer * l, int * out, int x, int z, int w, int h)
             int chunkX = (i + pX) * 2;
             int chunkZ = (j + pZ) * 2;
 
-            uint32_t cs = ss;
+            std::uint32_t cs = ss;
             cs += chunkX;
             cs *= cs * 1284865837 + 4150755663;
             cs += chunkZ;
@@ -155,7 +290,7 @@ int mapZoomFuzzy(const Layer * l, int * out, int x, int z, int w, int h)
 
     for (j = 0; j < h; j++)
     {
-        memmove(&out[j*w], &buf[(j + (z & 1))*newW + (x & 1)], w*sizeof(int));
+        std::memmove(&out[j*w], &buf[(j + (z & 1))*newW + (x & 1)], w*sizeof(int));
     }
     //free(buf);
 
@@ -163,7 +298,7 @@ int mapZoomFuzzy(const Layer * l, int * out, int x, int z, int w, int h)
 }
 
 
-static inline int select4(uint32_t cs, uint32_t st, int v00, int v01, int v10, int v11)
+constexpr auto select4(std::uint32_t cs, std::uint32_t st, int v00, int v01, int v10, int v11) noexcept -> int
 {
     int v;
     int cv00 = (v00 == v10) + (v00 == v01) + (v00 == v11);
@@ -190,22 +325,22 @@ int mapZoom(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x >> 1;
     int pZ = z >> 1;
-    int64_t pW = ((x + w) >> 1) - pX + 1; // (w >> 1) + 2;
-    int64_t pH = ((z + h) >> 1) - pZ + 1; // (h >> 1) + 2;
-    int64_t i, j;
+    std::int64_t pW = ((x + w) >> 1) - pX + 1; // (w >> 1) + 2;
+    std::int64_t pH = ((z + h) >> 1) - pZ + 1; // (h >> 1) + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    int64_t newW = pW * 2;
-    //int64_t newH = pH * 2;
-    int64_t idx;
+    std::int64_t newW = pW * 2;
+    //std::int64_t newH = pH * 2;
+    std::int64_t idx;
     int v00, v01, v10, v11;
     int *buf = out + pW * pH; //(int*) malloc((newW+1)*(newH+1)*sizeof(*buf));
 
-    const uint32_t st = (uint32_t)l->startSalt;
-    const uint32_t ss = (uint32_t)l->startSeed;
+    const std::uint32_t st = (std::uint32_t)l->startSalt;
+    const std::uint32_t ss = (std::uint32_t)l->startSeed;
 
     for (j = 0; j < pH; j++)
     {
@@ -232,7 +367,7 @@ int mapZoom(const Layer * l, int * out, int x, int z, int w, int h)
             int chunkX = (i + pX) * 2;
             int chunkZ = (j + pZ) * 2;
 
-            uint32_t cs = ss;
+            std::uint32_t cs = ss;
             cs += chunkX;
             cs *= cs * 1284865837 + 4150755663;
             cs += chunkZ;
@@ -257,7 +392,7 @@ int mapZoom(const Layer * l, int * out, int x, int z, int w, int h)
 
     for (j = 0; j < h; j++)
     {
-        memmove(&out[j*w], &buf[(j + (z & 1))*newW + (x & 1)], w*sizeof(int));
+        std::memmove(&out[j*w], &buf[(j + (z & 1))*newW + (x & 1)], w*sizeof(int));
     }
     //free(buf);
 
@@ -269,17 +404,17 @@ int mapLand(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    uint64_t st = l->startSalt;
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t st = l->startSalt;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -385,17 +520,17 @@ int mapLand16(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    uint64_t st = l->startSalt;
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t st = l->startSalt;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -480,16 +615,16 @@ int mapLandB18(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, (int)pW, (int)pH);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -533,16 +668,16 @@ int mapIsland(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -574,16 +709,16 @@ int mapSnow16(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -606,16 +741,16 @@ int mapSnow(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -642,9 +777,9 @@ int mapCool(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
@@ -681,9 +816,9 @@ int mapHeat(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
@@ -718,14 +853,14 @@ int mapHeat(const Layer * l, int * out, int x, int z, int w, int h)
 
 int mapSpecial(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int64_t i, j;
+    std::int64_t i, j;
     int err = l->p->getMap(l->p, out, x, z, w, h);
     if unlikely(err != 0)
         return err;
 
-    uint64_t st = l->startSalt;
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t st = l->startSalt;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -739,7 +874,7 @@ int mapSpecial(const Layer * l, int * out, int x, int z, int w, int h)
             if (mcFirstIsZero(cs, 13))
             {
                 cs = mcStepSeed(cs, st);
-                v |= (uint32_t)(1 + mcFirstInt(cs, 15)) << 8 & 0xf00;
+                v |= (std::uint32_t)(1 + mcFirstInt(cs, 15)) << 8 & 0xf00;
                 // 1 to 1 mapping so 'out' can be overwritten immediately
                 out[i + j*w] = v;
             }
@@ -754,16 +889,16 @@ int mapMushroom(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -793,9 +928,9 @@ int mapDeepOcean(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
@@ -860,20 +995,20 @@ const int oldBiomes11[] = { desert, forest, mountains, swamp, plains, taiga };
 
 int mapBiome(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int64_t i, j;
+    std::int64_t i, j;
     int err = l->p->getMap(l->p, out, x, z, w, h);
     if unlikely(err != 0)
         return err;
 
     int mc = l->mc;
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
         for (i = 0; i < w; i++)
         {
-            int64_t idx = i + j*w;
+            std::int64_t idx = i + j*w;
             int id = out[idx];
             int v;
             int hasHighBit = (id & 0xf00);
@@ -939,13 +1074,13 @@ int mapBiome(const Layer * l, int * out, int x, int z, int w, int h)
 
 int mapNoise(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int64_t i, j;
+    std::int64_t i, j;
     int err = l->p->getMap(l->p, out, x, z, w, h);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     int mod = (l->mc <= MC_1_6) ? 2 : 299999;
 
@@ -971,19 +1106,19 @@ int mapNoise(const Layer * l, int * out, int x, int z, int w, int h)
 
 int mapBamboo(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int64_t i, j;
+    std::int64_t i, j;
     int err = l->p->getMap(l->p, out, x, z, w, h);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
         for (i = 0; i < w; i++)
         {
-            int64_t idx = i + j*w;
+            std::int64_t idx = i + j*w;
             if (out[idx] != jungle) continue;
 
             cs = getChunkSeed(ss, i + x, j + z);
@@ -998,7 +1133,7 @@ int mapBamboo(const Layer * l, int * out, int x, int z, int w, int h)
 }
 
 
-static inline int replaceEdge(int *out, int idx, int mc, int v10, int v21, int v01, int v12, int id, int baseID, int edgeID)
+auto replaceEdge(int *out, int idx, int mc, int v10, int v21, int v01, int v12, int id, int baseID, int edgeID) -> int
 {
     if (id != baseID) return 0;
 
@@ -1016,9 +1151,9 @@ int mapBiomeEdge(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
     int mc = l->mc;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
@@ -1087,14 +1222,14 @@ int mapHills(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
-    if unlikely(l->p2 == NULL)
+    if unlikely(l->p2 == nullptr)
     {
-        printf("mapHills() requires two parents! Use setupMultiLayer()\n");
-        exit(1);
+        std::printf("mapHills() requires two parents! Use setupMultiLayer()\n");
+        return -1;
     }
 
     int err;
@@ -1108,9 +1243,9 @@ int mapHills(const Layer * l, int * out, int x, int z, int w, int h)
         return err;
 
     int mc = l->mc;
-    uint64_t st = l->startSalt;
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t st = l->startSalt;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -1118,7 +1253,7 @@ int mapHills(const Layer * l, int * out, int x, int z, int w, int h)
         {
             int a11 = out[i+1 + (j+1)*pW]; // biome branch
             int b11 = riv[i+1 + (j+1)*pW]; // river branch
-            int64_t idx = i + j*w;
+            std::int64_t idx = i + j*w;
             int bn = -1;
 
             if (mc >= MC_1_7)
@@ -1247,7 +1382,7 @@ int mapHills(const Layer * l, int * out, int x, int z, int w, int h)
 }
 
 
-static inline int reduceID(int id)
+constexpr auto reduceID(int id) noexcept -> int
 {
     return id >= 2 ? 2 + (id & 1) : id;
 }
@@ -1256,9 +1391,9 @@ int mapRiver(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
@@ -1313,16 +1448,16 @@ int mapSmooth(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -1365,13 +1500,13 @@ int mapSmooth(const Layer * l, int * out, int x, int z, int w, int h)
 
 int mapSunflower(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int64_t i, j;
+    std::int64_t i, j;
     int err = l->p->getMap(l->p, out, x, z, w, h);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -1394,7 +1529,7 @@ int mapSunflower(const Layer * l, int * out, int x, int z, int w, int h)
 }
 
 
-inline static int replaceOcean(int *out, int idx, int v10, int v21, int v01, int v12, int id, int replaceID)
+auto replaceOcean(int *out, int idx, int v10, int v21, int v01, int v12, int id, int replaceID) -> int
 {
     if (isOceanic(id)) return 0;
 
@@ -1424,9 +1559,9 @@ int mapShore(const Layer * l, int * out, int x, int z, int w, int h)
 {
     int pX = x - 1;
     int pZ = z - 1;
-    int64_t pW = w + 2;
-    int64_t pH = h + 2;
-    int64_t i, j;
+    std::int64_t pW = w + 2;
+    std::int64_t pH = h + 2;
+    std::int64_t i, j;
 
     int err = l->p->getMap(l->p, out, pX, pZ, pW, pH);
     if unlikely(err != 0)
@@ -1534,13 +1669,13 @@ int mapShore(const Layer * l, int * out, int x, int z, int w, int h)
 
 int mapSwampRiver(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int64_t i, j;
+    std::int64_t i, j;
     int err = l->p->getMap(l->p, out, x, z, w, h);
     if unlikely(err != 0)
         return err;
 
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (j = 0; j < h; j++)
     {
@@ -1564,18 +1699,18 @@ int mapSwampRiver(const Layer * l, int * out, int x, int z, int w, int h)
 
 int mapRiverMix(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    if unlikely(l->p2 == NULL)
+    if unlikely(l->p2 == nullptr)
     {
-        printf("mapRiverMix() requires two parents! Use setupMultiLayer()\n");
-        exit(1);
+        std::printf("mapRiverMix() requires two parents! Use setupMultiLayer()\n");
+        return -1;
     }
 
     int err = l->p->getMap(l->p, out, x, z, w, h); // biome chain
     if unlikely(err != 0)
         return err;
 
-    int64_t len = w*(int64_t)h;
-    int64_t idx;
+    std::int64_t len = w*(std::int64_t)h;
+    std::int64_t idx;
     int mc = l->mc;
     int *buf = out + len;
 
@@ -1607,7 +1742,7 @@ int mapRiverMix(const Layer * l, int * out, int x, int z, int w, int h)
 
 int mapOceanTemp(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int64_t i, j;
+    std::int64_t i, j;
     const PerlinNoise *rnd = (const PerlinNoise*) l->noise;
 
     for (j = 0; j < h; j++)
@@ -1635,13 +1770,13 @@ int mapOceanTemp(const Layer * l, int * out, int x, int z, int w, int h)
 
 int mapOceanMix(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int64_t i, j;
+    std::int64_t i, j;
     int lx0, lx1, lz0, lz1, lw, lh;
 
-    if unlikely(l->p2 == NULL)
+    if unlikely(l->p2 == nullptr)
     {
-        printf("mapOceanMix() requires two parents! Use setupMultiLayer()\n");
-        exit(1);
+        std::printf("mapOceanMix() requires two parents! Use setupMultiLayer()\n");
+        return -1;
     }
 
     int err = l->p2->getMap(l->p2, out, x, z, w, h);
@@ -1697,6 +1832,7 @@ int mapOceanMix(const Layer * l, int * out, int x, int z, int w, int h)
             if (oceanID == frozen_ocean) replaceID = cold_ocean;
             if (replaceID)
             {
+                bool replaced = false;
                 for (ii = -8; ii <= 8; ii += 4)
                 {
                     for (jj = -8; jj <= 8; jj += 4)
@@ -1705,9 +1841,16 @@ int mapOceanMix(const Layer * l, int * out, int x, int z, int w, int h)
                         if (!isOceanic(id))
                         {
                             out[i + j*w] = replaceID;
-                            goto loop_x;
+                            replaced = true;
+                            break;
                         }
                     }
+                    if (replaced) {
+                        break;
+                    }
+                }
+                if (replaced) {
+                    continue;
                 }
             }
 
@@ -1731,8 +1874,6 @@ int mapOceanMix(const Layer * l, int * out, int x, int z, int w, int h)
             }
 
             out[i + j*w] = oceanID;
-
-            loop_x:;
         }
     }
 
@@ -1740,10 +1881,9 @@ int mapOceanMix(const Layer * l, int * out, int x, int z, int w, int h)
 }
 
 
-static inline void getVoronoiCell(uint64_t sha, int a, int b, int c,
-        int *x, int *y, int *z)
+auto getVoronoiCell(std::uint64_t sha, int a, int b, int c, int *x, int *y, int *z) -> void
 {
-    uint64_t s = sha;
+    std::uint64_t s = sha;
     s = mcStepSeed(s, a);
     s = mcStepSeed(s, b);
     s = mcStepSeed(s, c);
@@ -1758,8 +1898,34 @@ static inline void getVoronoiCell(uint64_t sha, int a, int b, int c,
     *z = (((s >> 24) & 1023) - 512) * 36;
 }
 
-void mapVoronoiPlane(uint64_t sha, int *out, int *src,
+void mapVoronoiPlane(std::uint64_t sha, int *out, int *src,
     int x, int z, int w, int h, int y, int px, int pz, int pw, int ph)
+{
+    const auto out_count = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+    const auto src_count = static_cast<std::size_t>(pw) * static_cast<std::size_t>(ph);
+    map_voronoi_plane_impl(
+        sha,
+        std::span<int>{out, out_count},
+        std::span<int>{src, src_count},
+        x, z, w, h, y, px, pz, pw, ph
+    );
+}
+
+namespace {
+auto map_voronoi_plane_impl(
+    std::uint64_t sha,
+    std::span<int> out,
+    std::span<int> src,
+    int x,
+    int z,
+    int w,
+    int h,
+    int y,
+    int px,
+    int pz,
+    int pw,
+    int ph
+) -> void
 {
     x -= 2;
     y -= 2;
@@ -1770,27 +1936,27 @@ void mapVoronoiPlane(uint64_t sha, int *out, int *src,
     int pi, pj, ii, jj, dx, dz, pjz, pix, i4, j4;
     int v00, v01, v10, v11, v;
     int prev_skip;
-    int64_t r;
-    uint64_t d, dmin;
+    std::int64_t r;
+    std::uint64_t d, dmin;
     int i, j;
 
     for (pj = 0; pj < ph-1; pj++)
     {
-        v00 = src[(pj+0)*(int64_t)pw];
-        v10 = src[(pj+1)*(int64_t)pw];
+        v00 = src[(pj+0)*(std::int64_t)pw];
+        v10 = src[(pj+1)*(std::int64_t)pw];
         pjz = pz + pj;
         j4 = pjz * 4 - z;
         prev_skip = 1;
 
         for (pi = 0; pi < pw-1; pi++)
         {
-            PREFETCH( out + (pjz * 4 + 0) * (int64_t)w + pi, 1, 1 );
-            PREFETCH( out + (pjz * 4 + 1) * (int64_t)w + pi, 1, 1 );
-            PREFETCH( out + (pjz * 4 + 2) * (int64_t)w + pi, 1, 1 );
-            PREFETCH( out + (pjz * 4 + 3) * (int64_t)w + pi, 1, 1 );
+            PREFETCH( out.data() + (pjz * 4 + 0) * (std::int64_t)w + pi, 1, 1 );
+            PREFETCH( out.data() + (pjz * 4 + 1) * (std::int64_t)w + pi, 1, 1 );
+            PREFETCH( out.data() + (pjz * 4 + 2) * (std::int64_t)w + pi, 1, 1 );
+            PREFETCH( out.data() + (pjz * 4 + 3) * (std::int64_t)w + pi, 1, 1 );
 
-            v01 = src[(pj+0)*(int64_t)pw + (pi+1)];
-            v11 = src[(pj+1)*(int64_t)pw + (pi+1)];
+            v01 = src[(pj+0)*(std::int64_t)pw + (pi+1)];
+            v11 = src[(pj+1)*(std::int64_t)pw + (pi+1)];
             pix = px + pi;
             i4 = pix * 4 - x;
 
@@ -1804,7 +1970,7 @@ void mapVoronoiPlane(uint64_t sha, int *out, int *src,
                     {
                         i = i4 + ii;
                         if (i < 0 || i >= w) continue;
-                        out[j*(int64_t)w + i] = v00;
+                        out[j*(std::int64_t)w + i] = v00;
                     }
                 }
                 prev_skip = 1;
@@ -1837,7 +2003,7 @@ void mapVoronoiPlane(uint64_t sha, int *out, int *src,
                     const int B = 20*1024;
                     dx = ii * 10*1024;
                     dz = jj * 10*1024;
-                    dmin = (uint64_t)-1;
+                    dmin = (std::uint64_t)-1;
 
                     v = v00;
                     d = 0;
@@ -1884,7 +2050,7 @@ void mapVoronoiPlane(uint64_t sha, int *out, int *src,
                     r = z111 - A + dz;  d += r*r;
                     if (d < dmin) { dmin = d; v = v11; }
 
-                    out[j*(int64_t)w + i] = v;
+                    out[j*(std::int64_t)w + i] = v;
                 }
             }
 
@@ -1905,6 +2071,7 @@ void mapVoronoiPlane(uint64_t sha, int *out, int *src,
         }
     }
 }
+} // namespace
 
 int mapVoronoi(const Layer * l, int * out, int x, int z, int w, int h)
 {
@@ -1922,8 +2089,8 @@ int mapVoronoi(const Layer * l, int * out, int x, int z, int w, int h)
             return err;
     }
 
-    int *src = out + (int64_t)w*h;
-    memmove(src, out, sizeof(int)*pw*ph);
+    int *src = out + (std::int64_t)w*h;
+    std::memmove(src, out, sizeof(int)*pw*ph);
     mapVoronoiPlane(l->startSalt, out, src, x,z,w,h, 0, px,pz,pw,ph);
 
     return 0;
@@ -1936,8 +2103,8 @@ int mapVoronoi114(const Layer * l, int * out, int x, int z, int w, int h)
     z -= 2;
     int pX = x >> 2;
     int pZ = z >> 2;
-    int64_t pW = ((x + w) >> 2) - pX + 2;
-    int64_t pH = ((z + h) >> 2) - pZ + 2;
+    std::int64_t pW = ((x + w) >> 2) - pX + 2;
+    std::int64_t pH = ((z + h) >> 2) - pZ + 2;
 
     if (l->p)
     {
@@ -1948,13 +2115,13 @@ int mapVoronoi114(const Layer * l, int * out, int x, int z, int w, int h)
 
     int i, j, ii, jj, pi, pj, pix, pjz, i4, j4, mi, mj;
     int v00, v01, v10, v11, v;
-    int64_t da1, da2, db1, db2, dc1, dc2, dd1, dd2;
-    int64_t sja, sjb, sjc, sjd, da, db, dc, dd;
+    std::int64_t da1, da2, db1, db2, dc1, dc2, dd1, dd2;
+    std::int64_t sja, sjb, sjc, sjd, da, db, dc, dd;
     int *buf = out + pW * pH;
 
-    uint64_t st = l->startSalt;
-    uint64_t ss = l->startSeed;
-    uint64_t cs;
+    std::uint64_t st = l->startSalt;
+    std::uint64_t ss = l->startSeed;
+    std::uint64_t cs;
 
     for (pj = 0; pj < pH-1; pj++)
     {
@@ -1969,10 +2136,10 @@ int mapVoronoi114(const Layer * l, int * out, int x, int z, int w, int h)
             i4 = pix * 4 - x;
 
             // try to prefetch the relevant rows to help prevent cache misses
-            PREFETCH( buf + (pjz * 4 + 0) * (int64_t)w + pi, 1, 1 );
-            PREFETCH( buf + (pjz * 4 + 1) * (int64_t)w + pi, 1, 1 );
-            PREFETCH( buf + (pjz * 4 + 2) * (int64_t)w + pi, 1, 1 );
-            PREFETCH( buf + (pjz * 4 + 3) * (int64_t)w + pi, 1, 1 );
+            PREFETCH( buf + (pjz * 4 + 0) * (std::int64_t)w + pi, 1, 1 );
+            PREFETCH( buf + (pjz * 4 + 1) * (std::int64_t)w + pi, 1, 1 );
+            PREFETCH( buf + (pjz * 4 + 2) * (std::int64_t)w + pi, 1, 1 );
+            PREFETCH( buf + (pjz * 4 + 3) * (std::int64_t)w + pi, 1, 1 );
 
             v10 = out[pi+1 + (pj+0)*pW];
             v11 = out[pi+1 + (pj+1)*pW];
@@ -1987,7 +2154,7 @@ int mapVoronoi114(const Layer * l, int * out, int x, int z, int w, int h)
                     {
                         i = i4 + ii;
                         if (i < 0 || i >= w) continue;
-                        buf[j*(int64_t)w + i] = v00;
+                        buf[j*(std::int64_t)w + i] = v00;
                     }
                 }
                 continue;
@@ -2044,21 +2211,27 @@ int mapVoronoi114(const Layer * l, int * out, int x, int z, int w, int h)
                     else
                         v = v11;
 
-                    buf[j*(int64_t)w + i] = v;
+                    buf[j*(std::int64_t)w + i] = v;
                 }
             }
         }
     }
 
-    memmove(out, buf, sizeof(*buf)*w*h);
+    std::memmove(out, buf, sizeof(*buf)*w*h);
 
     return 0;
 }
 
 
-uint64_t getVoronoiSHA(uint64_t seed)
+std::uint64_t getVoronoiSHA(std::uint64_t seed)
 {
-    static const uint32_t K[64] = {
+    return voronoi_sha_impl(seed);
+}
+
+namespace {
+auto voronoi_sha_impl(std::uint64_t seed) -> std::uint64_t
+{
+    static constexpr std::array<std::uint32_t, 64> K{
         0x428a2f98,0x71374491, 0xb5c0fbcf,0xe9b5dba5,
         0x3956c25b,0x59f111f1, 0x923f82a4,0xab1c5ed5,
         0xd807aa98,0x12835b01, 0x243185be,0x550c7dc3,
@@ -2076,16 +2249,16 @@ uint64_t getVoronoiSHA(uint64_t seed)
         0x748f82ee,0x78a5636f, 0x84c87814,0x8cc70208,
         0x90befffa,0xa4506ceb, 0xbef9a3f7,0xc67178f2,
     };
-    static const uint32_t B[8] = {
+    static constexpr std::array<std::uint32_t, 8> B{
         0x6a09e667,0xbb67ae85, 0x3c6ef372,0xa54ff53a,
         0x510e527f,0x9b05688c, 0x1f83d9ab,0x5be0cd19,
     };
 
-    uint32_t m[64];
-    uint32_t a0,a1,a2,a3,a4,a5,a6,a7;
-    uint32_t i, x, y;
-    m[0] = BSWAP32((uint32_t)(seed));
-    m[1] = BSWAP32((uint32_t)(seed >> 32));
+    std::array<std::uint32_t, 64> m{};
+    std::uint32_t a0{},a1{},a2{},a3{},a4{},a5{},a6{},a7{};
+    std::uint32_t i{}, x{}, y{};
+    m[0] = BSWAP32((std::uint32_t)(seed));
+    m[1] = BSWAP32((std::uint32_t)(seed >> 32));
     m[2] = 0x80000000;
     for (i = 3; i < 15; i++)
         m[i] = 0;
@@ -2131,10 +2304,20 @@ uint64_t getVoronoiSHA(uint64_t seed)
     a0 += B[0];
     a1 += B[1];
 
-    return BSWAP32(a0) | ((uint64_t)BSWAP32(a1) << 32);
+    return BSWAP32(a0) | ((std::uint64_t)BSWAP32(a1) << 32);
+}
+} // namespace
+
+void voronoiAccess3D(std::uint64_t sha, int x, int y, int z, int *x4, int *y4, int *z4)
+{
+    const auto cell = voronoi_access_3d_impl(sha, x, y, z);
+    if (x4) *x4 = cell.x4;
+    if (y4) *y4 = cell.y4;
+    if (z4) *z4 = cell.z4;
 }
 
-void voronoiAccess3D(uint64_t sha, int x, int y, int z, int *x4, int *y4, int *z4)
+namespace {
+auto voronoi_access_3d_impl(std::uint64_t sha, int x, int y, int z) -> cubiomes::cpp::VoronoiCell3D
 {
     x -= 2;
     y -= 2;
@@ -2146,7 +2329,7 @@ void voronoiAccess3D(uint64_t sha, int x, int y, int z, int *x4, int *y4, int *z
     int dy = (y & 3) * 10240;
     int dz = (z & 3) * 10240;
     int ax = 0, ay = 0, az = 0;
-    uint64_t dmin = (uint64_t)-1;
+    std::uint64_t dmin = (std::uint64_t)-1;
     int i;
 
     for (i = 0; i < 8; i++)
@@ -2165,7 +2348,7 @@ void voronoiAccess3D(uint64_t sha, int x, int y, int z, int *x4, int *y4, int *z
         ry += dy - 40*1024*by;
         rz += dz - 40*1024*bz;
 
-        uint64_t d = rx*(uint64_t)rx + ry*(uint64_t)ry + rz*(uint64_t)rz;
+        std::uint64_t d = rx*(std::uint64_t)rx + ry*(std::uint64_t)ry + rz*(std::uint64_t)rz;
         if (d < dmin)
         {
             dmin = d;
@@ -2175,10 +2358,10 @@ void voronoiAccess3D(uint64_t sha, int x, int y, int z, int *x4, int *y4, int *z
         }
     }
 
-    if (x4) *x4 = ax;
-    if (y4) *y4 = ay;
-    if (z4) *z4 = az;
+    return cubiomes::cpp::VoronoiCell3D{
+        .x4 = ax,
+        .y4 = ay,
+        .z4 = az,
+    };
 }
-
-
-
+} // namespace

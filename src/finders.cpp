@@ -4072,7 +4072,14 @@ static int mapFilterOceanMix(const Layer * l, int * out, int x, int z, int w, in
 
     if (f->bf->riverToFind)
     {
-        err = l->p->getMap(l->p, out, x, z, w, h); // RiverMix
+        err = cubiomes::cpp::invoke_layer_map(
+            *l->p,
+            std::span<int>{out, static_cast<std::size_t>(w) * static_cast<std::size_t>(h)},
+            x,
+            z,
+            w,
+            h
+        ); // RiverMix
         if (err)
             return err;
     }
@@ -4093,27 +4100,47 @@ static int mapFilterOceanMix(const Layer * l, int * out, int x, int z, int w, in
     return 0;
 }
 
-static
-void swapMap(filter_data_t *fd, const BiomeFilter *bf, Layer *l,
-        int (*map)(const Layer *, int *, int, int, int, int))
+class ScopedLayerMapOverride final
 {
-    fd->bf = bf;
-    fd->map = l->getMap;
-    l->data = (void*) fd;
-    l->getMap = map;
-}
+public:
+    ScopedLayerMapOverride(
+        filter_data_t &fd,
+        const BiomeFilter *bf,
+        Layer &layer,
+        int (*map)(const Layer *, int *, int, int, int, int)
+    ) : fd_(fd), layer_(layer)
+    {
+        fd_.bf = bf;
+        fd_.map = layer_.getMap;
+        layer_.data = static_cast<void*>(&fd_);
+        layer_.getMap = map;
+    }
 
-static
-void restoreMap(filter_data_t *fd, Layer *l)
-{
-    l->getMap = fd->map;
-    l->data = NULL;
-}
+    ~ScopedLayerMapOverride()
+    {
+        layer_.getMap = fd_.map;
+        layer_.data = nullptr;
+    }
+
+    ScopedLayerMapOverride(const ScopedLayerMapOverride&) = delete;
+    auto operator=(const ScopedLayerMapOverride&) -> ScopedLayerMapOverride& = delete;
+
+private:
+    filter_data_t &fd_;
+    Layer &layer_;
+};
 
 static
 int testExclusion(Layer *layer, int *cache, int x, int z, const BiomeFilter *bf)
 {
-    int err = layer->getMap(layer, cache, x, z, 1, 1);
+    int err = cubiomes::cpp::invoke_layer_map(
+        *layer,
+        std::span<int>{cache, 1U},
+        x,
+        z,
+        1,
+        1
+    );
     if (err)
         return 0; // skip, but don't treat error as valid
     int id = cache[0];
@@ -4270,26 +4297,33 @@ L_has_proto_mushroom:
         }
         if (err)
         {
-            if (cache == NULL)
+            if (cache == nullptr)
                 free(ids);
             return 0;
         }
     }
 
     filter_data_t fd[9];
-    swapMap(fd+0, filter, l+L_OCEAN_MIX_4,    mapFilterOceanMix);
-    swapMap(fd+1, filter, l+L_RIVER_MIX_4,    mapFilterRiverMix);
-    swapMap(fd+2, filter, l+L_SHORE_16,       mapFilterShore);
-    swapMap(fd+3, filter, l+L_SUNFLOWER_64,   mapFilterRareBiome);
-    swapMap(fd+4, filter, l+L_BIOME_EDGE_64,  mapFilterBiomeEdge);
-    swapMap(fd+5, filter, l+L_OCEAN_TEMP_256, mapFilterOceanTemp);
-    swapMap(fd+6, filter, l+L_BIOME_256,      mapFilterBiome);
-    swapMap(fd+7, filter, l+L_MUSHROOM_256,   mapFilterMushroom);
-    swapMap(fd+8, filter, l+L_SPECIAL_1024,   mapFilterSpecial);
+    ScopedLayerMapOverride guard0(fd[0], filter, l[L_OCEAN_MIX_4], mapFilterOceanMix);
+    ScopedLayerMapOverride guard1(fd[1], filter, l[L_RIVER_MIX_4], mapFilterRiverMix);
+    ScopedLayerMapOverride guard2(fd[2], filter, l[L_SHORE_16], mapFilterShore);
+    ScopedLayerMapOverride guard3(fd[3], filter, l[L_SUNFLOWER_64], mapFilterRareBiome);
+    ScopedLayerMapOverride guard4(fd[4], filter, l[L_BIOME_EDGE_64], mapFilterBiomeEdge);
+    ScopedLayerMapOverride guard5(fd[5], filter, l[L_OCEAN_TEMP_256], mapFilterOceanTemp);
+    ScopedLayerMapOverride guard6(fd[6], filter, l[L_BIOME_256], mapFilterBiome);
+    ScopedLayerMapOverride guard7(fd[7], filter, l[L_MUSHROOM_256], mapFilterMushroom);
+    ScopedLayerMapOverride guard8(fd[8], filter, l[L_SPECIAL_1024], mapFilterSpecial);
 
     ret = 0;
     setLayerSeed(entry, seed);
-    err = entry->getMap(entry, ids, x, z, w, h);
+    err = cubiomes::cpp::invoke_layer_map(
+        *entry,
+        std::span<int>{ids, static_cast<std::size_t>(w) * static_cast<std::size_t>(h)},
+        x,
+        z,
+        static_cast<std::int32_t>(w),
+        static_cast<std::int32_t>(h)
+    );
     if (err == 0)
     {
         uint64_t b = 0, m = 0;
@@ -4320,17 +4354,7 @@ L_has_proto_mushroom:
         ret = 2;
     }
 
-    restoreMap(fd+8, l+L_SPECIAL_1024);
-    restoreMap(fd+7, l+L_MUSHROOM_256);
-    restoreMap(fd+6, l+L_BIOME_256);
-    restoreMap(fd+5, l+L_OCEAN_TEMP_256);
-    restoreMap(fd+4, l+L_BIOME_EDGE_64);
-    restoreMap(fd+3, l+L_SUNFLOWER_64);
-    restoreMap(fd+2, l+L_SHORE_16);
-    restoreMap(fd+1, l+L_RIVER_MIX_4);
-    restoreMap(fd+0, l+L_OCEAN_MIX_4);
-
-    if (cache == NULL)
+    if (cache == nullptr)
         free(ids);
 
     return ret;
@@ -5615,5 +5639,3 @@ int getLargestRec(int match, const int *ids, int sx, int sz, Pos *p0, Pos *p1)
     free(meta);
     return ret;
 }
-
-

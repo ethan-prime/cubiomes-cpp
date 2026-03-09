@@ -196,15 +196,15 @@ double samplePerlin(const PerlinNoise *noise, double d1, double d2, double d3,
     double l8 = indexedLerp(idx[b3+1], d1-1, d2-1, d3-1);
 #endif
 
-    l1 = lerp(t1, l1, l2);
-    l3 = lerp(t1, l3, l4);
-    l5 = lerp(t1, l5, l6);
-    l7 = lerp(t1, l7, l8);
+    l1 = cubiomes_lerp(t1, l1, l2);
+    l3 = cubiomes_lerp(t1, l3, l4);
+    l5 = cubiomes_lerp(t1, l5, l6);
+    l7 = cubiomes_lerp(t1, l7, l8);
 
-    l1 = lerp(t2, l1, l3);
-    l5 = lerp(t2, l5, l7);
+    l1 = cubiomes_lerp(t2, l1, l3);
+    l5 = cubiomes_lerp(t2, l5, l7);
 
-    return lerp(t3, l1, l5);
+    return cubiomes_lerp(t3, l1, l5);
 }
 
 static
@@ -275,18 +275,18 @@ void samplePerlinBeta17Terrain(const PerlinNoise *noise, double *v,
             double m7 = indexedLerp(idx[a3+1], d1,   d2-1, d3-1);
             double l8 = indexedLerp(idx[b3+1], d1-1, d2-1, d3-1);
 
-            l1 = lerp(t1, m1, l2);
-            l3 = lerp(t1, m3, l4);
-            l5 = lerp(t1, m5, l6);
-            l7 = lerp(t1, m7, l8);
+            l1 = cubiomes_lerp(t1, m1, l2);
+            l3 = cubiomes_lerp(t1, m3, l4);
+            l5 = cubiomes_lerp(t1, m5, l6);
+            l7 = cubiomes_lerp(t1, m7, l8);
         }
 
         if (yi >= 7)
         {
-            double n1 = lerp(t2, l1, l3);
-            double n5 = lerp(t2, l5, l7);
+            double n1 = cubiomes_lerp(t2, l1, l3);
+            double n5 = cubiomes_lerp(t2, l5, l7);
 
-            v[yi-7] += lerp(t3, n1, n5) * noise->amplitude;
+            v[yi-7] += cubiomes_lerp(t3, n1, n5) * noise->amplitude;
         }
     }
 }

@@ -74,7 +74,7 @@ jobs:
 
       - name: Build and run C++ API smoke
         run: |
-          c++ -std=c++17 -O2 -Wall -Wextra -Werror -I. .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
+          c++ -std=c++23 -O2 -Wall -Wextra -Werror -I. .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
           ./cpp-api-smoke
 
   abi-guard:
@@ -87,7 +87,7 @@ jobs:
 
       - name: Compile and run ABI guard
         run: |
-          c++ -std=c++17 -O2 -Wall -Wextra -Werror -I. .github/ci/abi_guard.cpp -o abi-guard
+          c++ -std=c++23 -O2 -Wall -Wextra -Werror -I. .github/ci/abi_guard.cpp -o abi-guard
           ./abi-guard
 
   pedantic-build:

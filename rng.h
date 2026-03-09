@@ -343,7 +343,7 @@ static inline uint64_t getStartSeed(uint64_t ws, uint64_t ls)
 
 /* Linear interpolations
  */
-static inline double lerp(double part, double from, double to)
+static inline double cubiomes_lerp(double part, double from, double to)
 {
     return from + part * (to - from);
 }
@@ -351,7 +351,7 @@ static inline double lerp(double part, double from, double to)
 static inline double lerp2(
         double dx, double dy, double v00, double v10, double v01, double v11)
 {
-    return lerp(dy, lerp(dx, v00, v10), lerp(dx, v01, v11));
+    return cubiomes_lerp(dy, cubiomes_lerp(dx, v00, v10), cubiomes_lerp(dx, v01, v11));
 }
 
 static inline double lerp3(
@@ -361,14 +361,14 @@ static inline double lerp3(
 {
     v000 = lerp2(dx, dy, v000, v100, v010, v110);
     v001 = lerp2(dx, dy, v001, v101, v011, v111);
-    return lerp(dz, v000, v001);
+    return cubiomes_lerp(dz, v000, v001);
 }
 
 static inline double clampedLerp(double part, double from, double to)
 {
     if (part <= 0) return from;
     if (part >= 1) return to;
-    return lerp(part, from, to);
+    return cubiomes_lerp(part, from, to);
 }
 
 /* Find the modular inverse: (1/x) | mod m.

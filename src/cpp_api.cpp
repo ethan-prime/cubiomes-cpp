@@ -1,28 +1,27 @@
 #include "cpp_api.hpp"
 
-#include <cstdlib>
 #include <stdexcept>
+#include <utility>
 
 namespace cubiomes::cpp {
 
-BiomeGenerator::BiomeGenerator(int mc, uint32_t flags)
+BiomeGenerator::BiomeGenerator(int mc, uint32_t flags) : engine_(mc, flags)
 {
-    setupGenerator(&generator_, mc, flags);
 }
 
 void BiomeGenerator::reset(int mc, uint32_t flags)
 {
-    setupGenerator(&generator_, mc, flags);
+    engine_.reset(mc, flags);
 }
 
 void BiomeGenerator::apply_seed(Dimension dim, uint64_t seed)
 {
-    ::applySeed(&generator_, static_cast<int>(dim), seed);
+    engine_.apply_seed(static_cast<std::int32_t>(dim), seed);
 }
 
 int BiomeGenerator::biome_at(int scale, int x, int y, int z) const
 {
-    return ::getBiomeAt(&generator_, scale, x, y, z);
+    return engine_.biome_at(scale, x, y, z);
 }
 
 int BiomeGenerator::biome_at_block(int x, int y, int z) const
@@ -35,37 +34,21 @@ std::vector<int> BiomeGenerator::generate(Range r) const
     if (r.sx <= 0 || r.sz <= 0) {
         throw std::invalid_argument("Range dimensions must be positive");
     }
-
-    const int sy = r.sy <= 0 ? 1 : r.sy;
-    r.sy = sy;
-
-    int *cache = ::allocCache(&generator_, r);
-    if (!cache) {
-        throw std::bad_alloc();
+    const auto result = engine_.generate(r);
+    if (result.status != 0) {
+        throw std::runtime_error("generate_biomes failed");
     }
-
-    const int err = ::genBiomes(&generator_, cache, r);
-    if (err != 0) {
-        std::free(cache);
-        throw std::runtime_error("genBiomes failed");
-    }
-
-    const size_t count = static_cast<size_t>(r.sx) *
-        static_cast<size_t>(r.sz) *
-        static_cast<size_t>(sy);
-    std::vector<int> out(cache, cache + count);
-    std::free(cache);
-    return out;
+    return std::move(result.biomes);
 }
 
 const ::Generator& BiomeGenerator::c_generator() const noexcept
 {
-    return generator_;
+    return engine_.c_generator();
 }
 
 ::Generator& BiomeGenerator::c_generator() noexcept
 {
-    return generator_;
+    return engine_.c_generator();
 }
 
 } // namespace cubiomes::cpp

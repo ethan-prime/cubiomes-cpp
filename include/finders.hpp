@@ -3,6 +3,11 @@
 
 #include "generator.hpp"
 
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <vector>
+
 
 #define MASK48 (((int64_t)1 << 48) - 1)
 
@@ -92,7 +97,6 @@ STRUCT(Piece)
     uint8_t rot;        // rotation
     int8_t depth;
     int8_t type;
-    Piece *next;
 };
 
 STRUCT(EndIsland)
@@ -223,6 +227,119 @@ Pos getFeatureChunkInRegion(StructureConfig config, uint64_t seed, int regX, int
 
 static inline ATTR(const)
 Pos getLargeStructurePos(StructureConfig config, uint64_t seed, int regX, int regZ);
+
+namespace cubiomes::cpp {
+
+struct LocateBiomeResult final {
+    Pos position{};
+    std::int32_t passes{};
+};
+
+struct SpawnEstimateResult final {
+    Pos position{};
+    std::uint64_t rng{};
+};
+
+struct CheckBiomesResult final {
+    std::int32_t status{};
+    std::vector<std::int32_t> biomes{};
+};
+
+struct ParameterRangeResult final {
+    std::int32_t status{};
+    double minimum{};
+    double maximum{};
+};
+
+struct HouseListResult final {
+    std::array<std::int32_t, 9> houses{};
+    std::uint64_t rng{};
+};
+
+auto structure_config(std::int32_t structure_type, std::int32_t mc) -> std::optional<StructureConfig>;
+auto structure_position(
+    std::int32_t structure_type,
+    std::int32_t mc,
+    std::uint64_t seed,
+    std::int32_t reg_x,
+    std::int32_t reg_z
+) -> std::optional<Pos>;
+auto mineshafts(
+    std::int32_t mc,
+    std::uint64_t seed,
+    std::int32_t chunk_x,
+    std::int32_t chunk_z,
+    std::int32_t chunk_w,
+    std::int32_t chunk_h
+) -> std::vector<Pos>;
+auto locate_biome(
+    const Generator &g,
+    std::int32_t x,
+    std::int32_t y,
+    std::int32_t z,
+    std::int32_t radius,
+    std::uint64_t valid_b,
+    std::uint64_t valid_m,
+    std::uint64_t rng
+) -> LocateBiomeResult;
+auto estimate_spawn(const Generator &g) -> SpawnEstimateResult;
+auto spawn(const Generator &g) -> Pos;
+
+class StrongholdFinder final {
+public:
+    StrongholdFinder(std::int32_t mc, std::uint64_t s48);
+
+    [[nodiscard]] auto initial_approximation() const noexcept -> Pos;
+    [[nodiscard]] auto state() const noexcept -> const StrongholdIter&;
+    auto next(const Generator *g) -> std::int32_t;
+
+private:
+    StrongholdIter iter_{};
+};
+
+class BiomeFilterBuilder final {
+public:
+    explicit BiomeFilterBuilder(std::int32_t mc, std::uint32_t flags = 0U);
+
+    auto require(std::int32_t biome_id) -> BiomeFilterBuilder&;
+    auto exclude(std::int32_t biome_id) -> BiomeFilterBuilder&;
+    auto match_any(std::int32_t biome_id) -> BiomeFilterBuilder&;
+    [[nodiscard]] auto build() const -> BiomeFilter;
+
+private:
+    std::int32_t mc_{};
+    std::uint32_t flags_{};
+    std::vector<int> required_{};
+    std::vector<int> excluded_{};
+    std::vector<int> match_any_{};
+};
+
+auto check_for_biomes(
+    Generator &g,
+    Range r,
+    std::int32_t dim,
+    std::uint64_t seed,
+    const BiomeFilter &filter
+) -> CheckBiomesResult;
+auto parameter_range(
+    const DoublePerlinNoise &parameter,
+    std::int32_t x,
+    std::int32_t z,
+    std::int32_t w,
+    std::int32_t h
+) -> ParameterRangeResult;
+auto end_city_pieces(std::uint64_t seed, std::int32_t chunk_x, std::int32_t chunk_z) -> std::vector<Piece>;
+auto fortress_pieces(
+    std::int32_t n,
+    std::int32_t mc,
+    std::uint64_t seed,
+    std::int32_t chunk_x,
+    std::int32_t chunk_z
+) -> std::vector<Piece>;
+auto fixed_end_gateways(std::int32_t mc, std::uint64_t seed) -> std::array<Pos, 20>;
+auto house_list(std::uint64_t seed, std::int32_t chunk_x, std::int32_t chunk_z) -> HouseListResult;
+
+} // namespace cubiomes::cpp
 
 static inline ATTR(const)
 Pos getLargeStructureChunkInRegion(StructureConfig config, uint64_t seed, int regX, int regZ);
@@ -826,6 +943,19 @@ Pos getLargeStructurePos(StructureConfig config, uint64_t seed, int regX, int re
     return pos;
 }
 
-
-
-
+namespace cubiomes::legacy {
+using ::checkForBiomes;
+using ::estimateSpawn;
+using ::getEndCityPieces;
+using ::getFixedEndGateways;
+using ::getFortressPieces;
+using ::getMineshafts;
+using ::getSpawn;
+using ::getStructureConfig;
+using ::getStructurePos;
+using ::getHouseList;
+using ::initFirstStronghold;
+using ::locateBiome;
+using ::nextStronghold;
+using ::setupBiomeFilter;
+} // namespace cubiomes::legacy

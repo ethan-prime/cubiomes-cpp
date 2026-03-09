@@ -1,5 +1,6 @@
 #include "quadbase.hpp"
 #include "util.hpp"
+#include "legacy_util.hpp"
 
 #include <string.h>
 #include <limits.h>
@@ -670,5 +671,4 @@ int scanForQuads(
 
     return cnt;
 }
-
 

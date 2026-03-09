@@ -1,5 +1,6 @@
 #include "cpp_api.hpp"
 #include "generator.hpp"
+#include "layers.hpp"
 #include "util.hpp"
 
 #include <cassert>
@@ -89,6 +90,71 @@ int main()
     }
     if (!threw) {
         return 1;
+    }
+
+    {
+        constexpr std::uint64_t world_seed = 123456789ULL;
+        const auto sha_cpp = cubiomes::cpp::voronoi_sha(world_seed);
+        const auto sha_legacy = cubiomes::legacy::getVoronoiSHA(world_seed);
+        if (sha_cpp != sha_legacy) {
+            return 1;
+        }
+
+        const auto cell = cubiomes::cpp::voronoi_access_3d(sha_cpp, 11, 63, -9);
+        const cubiomes::cpp::VoronoiMapper mapper{sha_cpp};
+        const auto cell_from_mapper = mapper.access_3d(11, 63, -9);
+        int lx4 = 0;
+        int ly4 = 0;
+        int lz4 = 0;
+        cubiomes::legacy::voronoiAccess3D(sha_cpp, 11, 63, -9, &lx4, &ly4, &lz4);
+        if (cell.x4 != lx4 || cell.y4 != ly4 || cell.z4 != lz4) {
+            return 1;
+        }
+        if (cell_from_mapper.x4 != lx4 || cell_from_mapper.y4 != ly4 || cell_from_mapper.z4 != lz4) {
+            return 1;
+        }
+
+        constexpr int pw = 3;
+        constexpr int ph = 3;
+        constexpr int w = 8;
+        constexpr int h = 8;
+        std::vector<int> src_legacy{
+            plains, plains, desert,
+            plains, forest, desert,
+            taiga, taiga, snowy_tundra
+        };
+        std::vector<int> out_legacy(static_cast<size_t>(w) * static_cast<size_t>(h), 0);
+        cubiomes::legacy::mapVoronoiPlane(
+            sha_cpp,
+            out_legacy.data(),
+            src_legacy.data(),
+            0, 0, w, h, 64,
+            0, 0, pw, ph
+        );
+
+        std::vector<std::int32_t> src_cpp(src_legacy.begin(), src_legacy.end());
+        std::vector<std::int32_t> out_cpp(static_cast<size_t>(w) * static_cast<size_t>(h), 0);
+        if (cubiomes::cpp::map_voronoi_plane(
+                sha_cpp,
+                out_cpp,
+                src_cpp,
+                0, 0, w, h, 64,
+                0, 0, pw, ph) != 0) {
+            return 1;
+        }
+        std::vector<std::int32_t> out_cpp_mapper(static_cast<size_t>(w) * static_cast<size_t>(h), 0);
+        if (mapper.map_plane(out_cpp_mapper, src_cpp, 0, 0, w, h, 64, 0, 0, pw, ph) != 0) {
+            return 1;
+        }
+
+        for (size_t i = 0; i < out_legacy.size(); ++i) {
+            if (out_cpp[i] != out_legacy[i]) {
+                return 1;
+            }
+            if (out_cpp_mapper[i] != out_legacy[i]) {
+                return 1;
+            }
+        }
     }
 
     return 0;

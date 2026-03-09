@@ -3,8 +3,10 @@
 #include "noise.hpp"
 #include "biomes.hpp"
 
+#include <cstdint>
+#include <span>
 
-#define LAYER_INIT_SHA          (~0ULL)
+inline constexpr auto LAYER_INIT_SHA = ~std::uint64_t{0};
 
 
 enum BiomeTempCategory
@@ -97,9 +99,9 @@ STRUCT(Layer)
     int8_t edge;        // maximum border required from parent layer
     int scale;          // scale of this layer (cell = scale x scale blocks)
 
-    uint64_t layerSalt; // processed salt or initialization mode
-    uint64_t startSalt; // (depends on world seed) used to step PRNG forward
-    uint64_t startSeed; // (depends on world seed) start for chunk seeds
+    std::uint64_t layerSalt; // processed salt or initialization mode
+    std::uint64_t startSalt; // (depends on world seed) used to step PRNG forward
+    std::uint64_t startSeed; // (depends on world seed) start for chunk seeds
 
     void *noise;        // (depends on world seed) noise map data
     void *data;         // generic data for custom layers
@@ -126,7 +128,7 @@ STRUCT(LayerStack)
 //==============================================================================
 
 /* Applies the given world seed to the layer and all dependent layers. */
-void setLayerSeed(Layer *layer, uint64_t worldSeed);
+void setLayerSeed(Layer *layer, std::uint64_t worldSeed);
 
 //==============================================================================
 // Layers
@@ -170,13 +172,96 @@ mapfunc_t mapVoronoi114;
 // access algorithm, mapping the 1:1 scale onto its 1:4 correspondent.
 // It is seeded by the first 8-bytes of the SHA-256 hash of the world seed.
 ATTR(const)
-uint64_t getVoronoiSHA(uint64_t worldSeed);
-void voronoiAccess3D(uint64_t sha, int x, int y, int z, int *x4, int *y4, int *z4);
+std::uint64_t getVoronoiSHA(std::uint64_t worldSeed);
+void voronoiAccess3D(std::uint64_t sha, int x, int y, int z, int *x4, int *y4, int *z4);
 
 // Applies a 2D voronoi mapping at height 'y' to a 'src' plane, where
 // src_range [px,pz,pw,ph] -> out_range [x,z,w,h] have to match the scaling.
-void mapVoronoiPlane(uint64_t sha, int *out, int *src,
+void mapVoronoiPlane(std::uint64_t sha, int *out, int *src,
     int x, int z, int w, int h, int y, int px, int pz, int pw, int ph);
 
+namespace cubiomes::cpp {
 
+inline constexpr auto layer_init_sha = LAYER_INIT_SHA;
 
+struct VoronoiCell3D final {
+    std::int32_t x4{};
+    std::int32_t y4{};
+    std::int32_t z4{};
+};
+
+class VoronoiMapper final {
+public:
+    explicit constexpr VoronoiMapper(std::uint64_t sha) noexcept : sha_(sha) {}
+
+    [[nodiscard]] constexpr auto sha() const noexcept -> std::uint64_t { return sha_; }
+    [[nodiscard]] auto access_3d(std::int32_t x, std::int32_t y, std::int32_t z) const -> VoronoiCell3D;
+    auto map_plane(
+        std::span<std::int32_t> out,
+        std::span<std::int32_t> src,
+        std::int32_t x,
+        std::int32_t z,
+        std::int32_t w,
+        std::int32_t h,
+        std::int32_t y,
+        std::int32_t px,
+        std::int32_t pz,
+        std::int32_t pw,
+        std::int32_t ph
+    ) const -> std::int32_t;
+
+private:
+    std::uint64_t sha_{};
+};
+
+auto invoke_layer_map(
+    const Layer &layer,
+    std::span<int> out,
+    std::int32_t x,
+    std::int32_t z,
+    std::int32_t w,
+    std::int32_t h
+) -> std::int32_t;
+
+class LayerRuntime final {
+public:
+    explicit constexpr LayerRuntime(const Layer &layer) noexcept : layer_(layer) {}
+
+    auto run(
+        std::span<int> out,
+        std::int32_t x,
+        std::int32_t z,
+        std::int32_t w,
+        std::int32_t h
+    ) const -> std::int32_t;
+
+private:
+    const Layer &layer_;
+};
+
+auto set_layer_seed(Layer &layer, std::uint64_t world_seed) -> void;
+auto voronoi_sha(std::uint64_t world_seed) -> std::uint64_t;
+auto voronoi_access_3d(std::uint64_t sha, std::int32_t x, std::int32_t y, std::int32_t z) -> VoronoiCell3D;
+auto map_voronoi_plane(
+    std::uint64_t sha,
+    std::span<std::int32_t> out,
+    std::span<std::int32_t> src,
+    std::int32_t x,
+    std::int32_t z,
+    std::int32_t w,
+    std::int32_t h,
+    std::int32_t y,
+    std::int32_t px,
+    std::int32_t pz,
+    std::int32_t pw,
+    std::int32_t ph
+) -> std::int32_t;
+
+} // namespace cubiomes::cpp
+
+namespace cubiomes::legacy {
+using ::getVoronoiSHA;
+using ::mapVoronoiPlane;
+using ::setLayerSeed;
+using ::voronoiAccess3D;
+} // namespace cubiomes::legacy

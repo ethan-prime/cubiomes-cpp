@@ -115,6 +115,16 @@ int main()
         if (!require(isSnowy(desert) == 0)) return 1;
         if (!require(isMesa(eroded_badlands) == 1)) return 1;
         if (!require(isMesa(forest) == 0)) return 1;
+
+        using cubiomes::cpp::Biome;
+        using cubiomes::cpp::Version;
+        if (!require(cubiomes::cpp::biome_exists(Version::V1_20, Biome::Plains))) return 1;
+        if (!require(cubiomes::cpp::is_overworld(Version::V1_20, Biome::Plains))) return 1;
+        if (!require(cubiomes::cpp::dimension_kind(Biome::EndHighlands) == cubiomes::cpp::DimensionKind::End)) return 1;
+        if (!require(cubiomes::cpp::mutated_biome(Version::V1_20, Biome::Forest) == Biome::FlowerForest)) return 1;
+        if (!require(cubiomes::cpp::biome_category(Version::V1_20, Biome::SnowyTaiga) == Biome::Taiga)) return 1;
+        if (!require(cubiomes::cpp::is_oceanic_biome(Biome::DeepOcean))) return 1;
+        if (!require(cubiomes::cpp::is_snowy_biome(Biome::SnowyTundra))) return 1;
     }
 
     return 0;

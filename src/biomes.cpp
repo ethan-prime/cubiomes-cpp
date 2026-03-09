@@ -73,6 +73,25 @@ constexpr auto kSnowyBiomes = make_flag_table<256>({
     snowy_taiga_hills, ice_spikes, snowy_taiga_mountains
 });
 
+constexpr auto kNeverOverworldBiomes = make_flag_table<256>({
+    nether_wastes, the_end, deep_warm_ocean, the_void
+});
+
+constexpr auto kDimensionByBiome = [] {
+    std::array<int, 256> table{};
+    table.fill(DIM_OVERWORLD);
+    table[the_end] = DIM_END;
+    table[nether_wastes] = DIM_NETHER;
+
+    for (int id = small_end_islands; id <= end_barrens; ++id) {
+        table[static_cast<std::size_t>(id)] = DIM_END;
+    }
+    for (int id = soul_sand_valley; id <= basalt_deltas; ++id) {
+        table[static_cast<std::size_t>(id)] = DIM_NETHER;
+    }
+    return table;
+}();
+
 constexpr std::uint64_t kShallowOceanBits =
     (1ULL << ocean) |
     (1ULL << frozen_ocean) |
@@ -176,13 +195,15 @@ int biomeExists(int mc, int id)
     if (mc <= MC_B1_7)
         return has_id(kBeta17Biomes, id);
 
-    if (mc <= MC_B1_8)
+    if (mc <= MC_B1_8) {
         if (has_id(kPreB18Excluded, id))
             return 0;
+    }
 
-    if (mc <= MC_1_0)
+    if (mc <= MC_1_0) {
         if (has_id(kPre10Excluded, id))
             return 0;
+    }
 
     if (is_between(id, ocean, mountain_edge)) return 1;
     if (is_between(id, jungle, jungle_hills)) return mc >= MC_1_2;
@@ -208,36 +229,25 @@ int isOverworld(int mc, int id)
     if (!biomeExists(mc, id))
         return 0;
 
-    if (id >= small_end_islands && id <= end_barrens) return 0;
-    if (id >= soul_sand_valley && id <= basalt_deltas) return 0;
+    if (is_between(id, small_end_islands, end_barrens)) return 0;
+    if (is_between(id, soul_sand_valley, basalt_deltas)) return 0;
+    if (has_id(kNeverOverworldBiomes, id)) return 0;
 
-    switch (id)
-    {
-    case nether_wastes:
-    case the_end:
-        return 0;
-    case frozen_ocean:
+    if (id == frozen_ocean)
         return mc <= MC_1_6 || mc >= MC_1_13;
-    case mountain_edge:
+    if (id == mountain_edge)
         return mc <= MC_1_6;
-    case deep_warm_ocean:
-    case the_void:
-        return 0;
-    case tall_birch_forest:
+    if (id == tall_birch_forest)
         return mc <= MC_1_8 || mc >= MC_1_11;
-    case dripstone_caves:
-    case lush_caves:
+    if (id == dripstone_caves || id == lush_caves)
         return mc >= MC_1_18;
-    }
     return 1;
 }
 
 int getDimension(int id)
 {
-    if (id >= small_end_islands && id <= end_barrens) return DIM_END;
-    if (id >= soul_sand_valley && id <= basalt_deltas) return DIM_NETHER;
-    if (id == the_end) return DIM_END;
-    if (id == nether_wastes) return DIM_NETHER;
+    if (id >= 0 && id < 256)
+        return kDimensionByBiome[static_cast<std::size_t>(id)];
     return DIM_OVERWORLD;
 }
 
@@ -300,4 +310,3 @@ int isSnowy(int id)
 {
     return has_id(kSnowyBiomes, id);
 }
-

@@ -191,4 +191,19 @@ int isDeepOcean(int id);
 int isOceanic(int id);
 int isSnowy(int id);
 
+namespace cubiomes::cpp {
+
+inline auto biome_exists(int mc, int id) -> bool { return biomeExists(mc, id) != 0; }
+inline auto is_overworld(int mc, int id) -> bool { return isOverworld(mc, id) != 0; }
+inline auto dimension_of(int id) -> int { return getDimension(id); }
+inline auto mutated_biome(int mc, int id) -> int { return getMutated(mc, id); }
+inline auto biome_category(int mc, int id) -> int { return getCategory(mc, id); }
+inline auto are_similar_biomes(int mc, int id1, int id2) -> bool { return areSimilar(mc, id1, id2) != 0; }
+inline auto is_mesa_biome(int id) -> bool { return isMesa(id) != 0; }
+inline auto is_shallow_ocean_biome(int id) -> bool { return isShallowOcean(id) != 0; }
+inline auto is_deep_ocean_biome(int id) -> bool { return isDeepOcean(id) != 0; }
+inline auto is_oceanic_biome(int id) -> bool { return isOceanic(id) != 0; }
+inline auto is_snowy_biome(int id) -> bool { return isSnowy(id) != 0; }
+
+} // namespace cubiomes::cpp
 

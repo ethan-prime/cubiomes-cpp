@@ -207,169 +207,110 @@ int str2mc(const char *s)
 
 const char *biome2str(int mc, int id)
 {
-    if (mc >= MC_1_18)
-    {
-        // a bunch of 'new' biomes in 1.18 actually just got renamed
-        // (based on their features and biome id conversion when upgrading)
-        switch (id)
-        {
-        case old_growth_birch_forest: return "old_growth_birch_forest";
-        case old_growth_pine_taiga: return "old_growth_pine_taiga";
-        case old_growth_spruce_taiga: return "old_growth_spruce_taiga";
-        case snowy_plains: return "snowy_plains";
-        case sparse_jungle: return "sparse_jungle";
-        case stony_shore: return "stony_shore";
-        case windswept_hills: return "windswept_hills";
-        case windswept_forest: return "windswept_forest";
-        case windswept_gravelly_hills: return "windswept_gravelly_hills";
-        case windswept_savanna: return "windswept_savanna";
-        case wooded_badlands: return "wooded_badlands";
+    using NamePair = std::pair<int, const char *>;
+    static constexpr auto kBiomeRenamed118 = std::array{
+        NamePair{old_growth_birch_forest, "old_growth_birch_forest"},
+        NamePair{old_growth_pine_taiga, "old_growth_pine_taiga"},
+        NamePair{old_growth_spruce_taiga, "old_growth_spruce_taiga"},
+        NamePair{snowy_plains, "snowy_plains"},
+        NamePair{sparse_jungle, "sparse_jungle"},
+        NamePair{stony_shore, "stony_shore"},
+        NamePair{windswept_hills, "windswept_hills"},
+        NamePair{windswept_forest, "windswept_forest"},
+        NamePair{windswept_gravelly_hills, "windswept_gravelly_hills"},
+        NamePair{windswept_savanna, "windswept_savanna"},
+        NamePair{wooded_badlands, "wooded_badlands"},
+    };
+    static constexpr auto kBiomeNames = std::array{
+        NamePair{ocean, "ocean"}, NamePair{plains, "plains"}, NamePair{desert, "desert"},
+        NamePair{mountains, "mountains"}, NamePair{forest, "forest"}, NamePair{taiga, "taiga"},
+        NamePair{swamp, "swamp"}, NamePair{river, "river"}, NamePair{nether_wastes, "nether_wastes"},
+        NamePair{the_end, "the_end"}, NamePair{frozen_ocean, "frozen_ocean"},
+        NamePair{frozen_river, "frozen_river"}, NamePair{snowy_tundra, "snowy_tundra"},
+        NamePair{snowy_mountains, "snowy_mountains"}, NamePair{mushroom_fields, "mushroom_fields"},
+        NamePair{mushroom_field_shore, "mushroom_field_shore"}, NamePair{beach, "beach"},
+        NamePair{desert_hills, "desert_hills"}, NamePair{wooded_hills, "wooded_hills"},
+        NamePair{taiga_hills, "taiga_hills"}, NamePair{mountain_edge, "mountain_edge"},
+        NamePair{jungle, "jungle"}, NamePair{jungle_hills, "jungle_hills"},
+        NamePair{jungle_edge, "jungle_edge"}, NamePair{deep_ocean, "deep_ocean"},
+        NamePair{stone_shore, "stone_shore"}, NamePair{snowy_beach, "snowy_beach"},
+        NamePair{birch_forest, "birch_forest"}, NamePair{birch_forest_hills, "birch_forest_hills"},
+        NamePair{dark_forest, "dark_forest"}, NamePair{snowy_taiga, "snowy_taiga"},
+        NamePair{snowy_taiga_hills, "snowy_taiga_hills"}, NamePair{giant_tree_taiga, "giant_tree_taiga"},
+        NamePair{giant_tree_taiga_hills, "giant_tree_taiga_hills"}, NamePair{wooded_mountains, "wooded_mountains"},
+        NamePair{savanna, "savanna"}, NamePair{savanna_plateau, "savanna_plateau"},
+        NamePair{badlands, "badlands"}, NamePair{wooded_badlands_plateau, "wooded_badlands_plateau"},
+        NamePair{badlands_plateau, "badlands_plateau"}, NamePair{small_end_islands, "small_end_islands"},
+        NamePair{end_midlands, "end_midlands"}, NamePair{end_highlands, "end_highlands"},
+        NamePair{end_barrens, "end_barrens"}, NamePair{warm_ocean, "warm_ocean"},
+        NamePair{lukewarm_ocean, "lukewarm_ocean"}, NamePair{cold_ocean, "cold_ocean"},
+        NamePair{deep_warm_ocean, "deep_warm_ocean"}, NamePair{deep_lukewarm_ocean, "deep_lukewarm_ocean"},
+        NamePair{deep_cold_ocean, "deep_cold_ocean"}, NamePair{deep_frozen_ocean, "deep_frozen_ocean"},
+        NamePair{seasonal_forest, "seasonal_forest"}, NamePair{shrubland, "shrubland"},
+        NamePair{rainforest, "rainforest"}, NamePair{the_void, "the_void"},
+        NamePair{sunflower_plains, "sunflower_plains"}, NamePair{desert_lakes, "desert_lakes"},
+        NamePair{gravelly_mountains, "gravelly_mountains"}, NamePair{flower_forest, "flower_forest"},
+        NamePair{taiga_mountains, "taiga_mountains"}, NamePair{swamp_hills, "swamp_hills"},
+        NamePair{ice_spikes, "ice_spikes"}, NamePair{modified_jungle, "modified_jungle"},
+        NamePair{modified_jungle_edge, "modified_jungle_edge"}, NamePair{tall_birch_forest, "tall_birch_forest"},
+        NamePair{tall_birch_hills, "tall_birch_hills"}, NamePair{dark_forest_hills, "dark_forest_hills"},
+        NamePair{snowy_taiga_mountains, "snowy_taiga_mountains"}, NamePair{giant_spruce_taiga, "giant_spruce_taiga"},
+        NamePair{giant_spruce_taiga_hills, "giant_spruce_taiga_hills"}, NamePair{modified_gravelly_mountains, "modified_gravelly_mountains"},
+        NamePair{shattered_savanna, "shattered_savanna"}, NamePair{shattered_savanna_plateau, "shattered_savanna_plateau"},
+        NamePair{eroded_badlands, "eroded_badlands"}, NamePair{modified_wooded_badlands_plateau, "modified_wooded_badlands_plateau"},
+        NamePair{modified_badlands_plateau, "modified_badlands_plateau"}, NamePair{bamboo_jungle, "bamboo_jungle"},
+        NamePair{bamboo_jungle_hills, "bamboo_jungle_hills"}, NamePair{soul_sand_valley, "soul_sand_valley"},
+        NamePair{crimson_forest, "crimson_forest"}, NamePair{warped_forest, "warped_forest"},
+        NamePair{basalt_deltas, "basalt_deltas"}, NamePair{dripstone_caves, "dripstone_caves"},
+        NamePair{lush_caves, "lush_caves"}, NamePair{meadow, "meadow"}, NamePair{grove, "grove"},
+        NamePair{snowy_slopes, "snowy_slopes"}, NamePair{stony_peaks, "stony_peaks"},
+        NamePair{jagged_peaks, "jagged_peaks"}, NamePair{frozen_peaks, "frozen_peaks"},
+        NamePair{deep_dark, "deep_dark"}, NamePair{mangrove_swamp, "mangrove_swamp"},
+        NamePair{cherry_grove, "cherry_grove"}, NamePair{pale_garden, "pale_garden"},
+    };
+
+    if (mc >= MC_1_18) {
+        if (const auto *entry = cubiomes::detail::table_lookup(kBiomeRenamed118, id, &NamePair::first); entry != nullptr) {
+            return entry->second;
         }
     }
-
-    switch (id)
-    {
-    case ocean: return "ocean";
-    case plains: return "plains";
-    case desert: return "desert";
-    case mountains: return "mountains";
-    case forest: return "forest";
-    case taiga: return "taiga";
-    case swamp: return "swamp";
-    case river: return "river";
-    case nether_wastes: return "nether_wastes";
-    case the_end: return "the_end";
-    // 10
-    case frozen_ocean: return "frozen_ocean";
-    case frozen_river: return "frozen_river";
-    case snowy_tundra: return "snowy_tundra";
-    case snowy_mountains: return "snowy_mountains";
-    case mushroom_fields: return "mushroom_fields";
-    case mushroom_field_shore: return "mushroom_field_shore";
-    case beach: return "beach";
-    case desert_hills: return "desert_hills";
-    case wooded_hills: return "wooded_hills";
-    case taiga_hills: return "taiga_hills";
-    // 20
-    case mountain_edge: return "mountain_edge";
-    case jungle: return "jungle";
-    case jungle_hills: return "jungle_hills";
-    case jungle_edge: return "jungle_edge";
-    case deep_ocean: return "deep_ocean";
-    case stone_shore: return "stone_shore";
-    case snowy_beach: return "snowy_beach";
-    case birch_forest: return "birch_forest";
-    case birch_forest_hills: return "birch_forest_hills";
-    case dark_forest: return "dark_forest";
-    // 30
-    case snowy_taiga: return "snowy_taiga";
-    case snowy_taiga_hills: return "snowy_taiga_hills";
-    case giant_tree_taiga: return "giant_tree_taiga";
-    case giant_tree_taiga_hills: return "giant_tree_taiga_hills";
-    case wooded_mountains: return "wooded_mountains";
-    case savanna: return "savanna";
-    case savanna_plateau: return "savanna_plateau";
-    case badlands: return "badlands";
-    case wooded_badlands_plateau: return "wooded_badlands_plateau";
-    case badlands_plateau: return "badlands_plateau";
-    // 40  --  1.13
-    case small_end_islands: return "small_end_islands";
-    case end_midlands: return "end_midlands";
-    case end_highlands: return "end_highlands";
-    case end_barrens: return "end_barrens";
-    case warm_ocean: return "warm_ocean";
-    case lukewarm_ocean: return "lukewarm_ocean";
-    case cold_ocean: return "cold_ocean";
-    case deep_warm_ocean: return "deep_warm_ocean";
-    case deep_lukewarm_ocean: return "deep_lukewarm_ocean";
-    case deep_cold_ocean: return "deep_cold_ocean";
-    // 50
-    case deep_frozen_ocean: return "deep_frozen_ocean";
-    // Alpha 1.2 - Beta 1.7
-    case seasonal_forest: return "seasonal_forest";
-    case shrubland: return "shrubland";
-    case rainforest: return "rainforest";
-
-    case the_void: return "the_void";
-
-    // mutated variants
-    case sunflower_plains: return "sunflower_plains";
-    case desert_lakes: return "desert_lakes";
-    case gravelly_mountains: return "gravelly_mountains";
-    case flower_forest: return "flower_forest";
-    case taiga_mountains: return "taiga_mountains";
-    case swamp_hills: return "swamp_hills";
-    case ice_spikes: return "ice_spikes";
-    case modified_jungle: return "modified_jungle";
-    case modified_jungle_edge: return "modified_jungle_edge";
-    case tall_birch_forest: return "tall_birch_forest";
-    case tall_birch_hills: return "tall_birch_hills";
-    case dark_forest_hills: return "dark_forest_hills";
-    case snowy_taiga_mountains: return "snowy_taiga_mountains";
-    case giant_spruce_taiga: return "giant_spruce_taiga";
-    case giant_spruce_taiga_hills: return "giant_spruce_taiga_hills";
-    case modified_gravelly_mountains: return "modified_gravelly_mountains";
-    case shattered_savanna: return "shattered_savanna";
-    case shattered_savanna_plateau: return "shattered_savanna_plateau";
-    case eroded_badlands: return "eroded_badlands";
-    case modified_wooded_badlands_plateau: return "modified_wooded_badlands_plateau";
-    case modified_badlands_plateau: return "modified_badlands_plateau";
-    // 1.14
-    case bamboo_jungle: return "bamboo_jungle";
-    case bamboo_jungle_hills: return "bamboo_jungle_hills";
-    // 1.16
-    case soul_sand_valley: return "soul_sand_valley";
-    case crimson_forest: return "crimson_forest";
-    case warped_forest: return "warped_forest";
-    case basalt_deltas: return "basalt_deltas";
-    // 1.17
-    case dripstone_caves: return "dripstone_caves";
-    case lush_caves: return "lush_caves";
-    // 1.18
-    case meadow: return "meadow";
-    case grove: return "grove";
-    case snowy_slopes: return "snowy_slopes";
-    case stony_peaks: return "stony_peaks";
-    case jagged_peaks: return "jagged_peaks";
-    case frozen_peaks: return "frozen_peaks";
-    // 1.19
-    case deep_dark: return "deep_dark";
-    case mangrove_swamp: return "mangrove_swamp";
-    // 1.20
-    case cherry_grove: return "cherry_grove";
-    // 1.21.4 (Winter Drop)
-    case pale_garden: return "pale_garden";
+    if (const auto *entry = cubiomes::detail::table_lookup(kBiomeNames, id, &NamePair::first); entry != nullptr) {
+        return entry->second;
     }
     return nullptr;
 }
 
 const char* struct2str(int stype)
 {
-    switch (stype)
-    {
-    case Desert_Pyramid:    return "desert_pyramid";
-    case Jungle_Temple:     return "jungle_pyramid";
-    case Swamp_Hut:         return "swamp_hut";
-    case Igloo:             return "igloo";
-    case Village:           return "village";
-    case Ocean_Ruin:        return "ocean_ruin";
-    case Shipwreck:         return "shipwreck";
-    case Monument:          return "monument";
-    case Mansion:           return "mansion";
-    case Outpost:           return "pillager_outpost";
-    case Treasure:          return "buried_treasure";
-    case Mineshaft:         return "mineshaft";
-    case Desert_Well:       return "desert_well";
-    case Ruined_Portal:     return "ruined_portal";
-    case Ruined_Portal_N:   return "ruined_portal_nether";
-    case Geode:             return "amethyst_geode";
-    case Ancient_City:      return "ancient_city";
-    case Trail_Ruins:       return "trail_ruins";
-    case Trial_Chambers:    return "trial_chambers";
-    case Fortress:          return "fortress";
-    case Bastion:           return "bastion_remnant";
-    case End_City:          return "end_city";
-    case End_Gateway:       return "end_gateway";
+    using NamePair = std::pair<int, const char *>;
+    static constexpr auto kStructureNames = std::array{
+        NamePair{Desert_Pyramid, "desert_pyramid"},
+        NamePair{Jungle_Temple, "jungle_pyramid"},
+        NamePair{Swamp_Hut, "swamp_hut"},
+        NamePair{Igloo, "igloo"},
+        NamePair{Village, "village"},
+        NamePair{Ocean_Ruin, "ocean_ruin"},
+        NamePair{Shipwreck, "shipwreck"},
+        NamePair{Monument, "monument"},
+        NamePair{Mansion, "mansion"},
+        NamePair{Outpost, "pillager_outpost"},
+        NamePair{Treasure, "buried_treasure"},
+        NamePair{Mineshaft, "mineshaft"},
+        NamePair{Desert_Well, "desert_well"},
+        NamePair{Ruined_Portal, "ruined_portal"},
+        NamePair{Ruined_Portal_N, "ruined_portal_nether"},
+        NamePair{Geode, "amethyst_geode"},
+        NamePair{Ancient_City, "ancient_city"},
+        NamePair{Trail_Ruins, "trail_ruins"},
+        NamePair{Trial_Chambers, "trial_chambers"},
+        NamePair{Fortress, "fortress"},
+        NamePair{Bastion, "bastion_remnant"},
+        NamePair{End_City, "end_city"},
+        NamePair{End_Gateway, "end_gateway"},
+    };
+
+    if (const auto *entry = cubiomes::detail::table_lookup(kStructureNames, stype, &NamePair::first); entry != nullptr) {
+        return entry->second;
     }
     return nullptr;
 }
@@ -377,6 +318,7 @@ const char* struct2str(int stype)
 namespace cubiomes::detail {
 
 using HexColorTable = std::array<std::uint32_t, 256>;
+using RgbTable = std::array<std::array<unsigned char, 3>, 256>;
 
 constexpr auto hex_to_rgb(std::uint32_t hex) -> std::array<unsigned char, 3>
 {
@@ -517,6 +459,31 @@ auto apply_hex_color_table(
     }
 }
 
+class ColorMap final {
+public:
+    constexpr explicit ColorMap(const HexColorTable &hex_table)
+    {
+        for (std::size_t i = 0; i < hex_table.size(); ++i) {
+            rgb_[i] = hex_to_rgb(hex_table[i]);
+        }
+    }
+
+    auto copy_to(unsigned char colors[256][3]) const -> void
+    {
+        for (std::size_t i = 0; i < rgb_.size(); ++i) {
+            colors[i][0] = rgb_[i][0];
+            colors[i][1] = rgb_[i][1];
+            colors[i][2] = rgb_[i][2];
+        }
+    }
+
+private:
+    RgbTable rgb_{};
+};
+
+constexpr auto kBiomeColorMap = ColorMap{kBiomeColorHexTable};
+constexpr auto kBiomeTypeColorMap = ColorMap{kBiomeTypeColorHexTable};
+
 } // namespace cubiomes::detail
 
 void initBiomeColors(unsigned char colors[256][3])
@@ -528,13 +495,13 @@ void initBiomeColors(unsigned char colors[256][3])
     // but with additional biomes for 1.18+, and with some subtle changes to
     // improve contrast for the new world generation.
 
-    detail::apply_hex_color_table(colors, detail::kBiomeColorHexTable);
+    detail::kBiomeColorMap.copy_to(colors);
 }
 
 void initBiomeTypeColors(unsigned char colors[256][3])
 {
     namespace detail = cubiomes::detail;
-    detail::apply_hex_color_table(colors, detail::kBiomeTypeColorHexTable);
+    detail::kBiomeTypeColorMap.copy_to(colors);
 }
 
 

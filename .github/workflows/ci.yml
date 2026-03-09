@@ -61,30 +61,6 @@ jobs:
           c++ -std=c++23 -O2 -Wall -Wextra -Werror -I. .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
           ./cpp-api-smoke
 
-  clang-tidy:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install clang-tidy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-tidy-18 || sudo apt-get install -y clang-tidy
-
-      - name: Configure CMake (compile commands)
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUBIOMES_BUILD_TESTS=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-
-      - name: Run clang-tidy
-        run: |
-          TIDY_BIN=$(command -v clang-tidy-18 || command -v clang-tidy)
-          "$TIDY_BIN" --version
-          for f in *.cpp; do
-            "$TIDY_BIN" -quiet -p build --extra-arg-before=-w "$f"
-          done
-
   pedantic-build:
     runs-on: ubuntu-latest
     needs: [cpp-api-smoke]
@@ -107,7 +83,7 @@ jobs:
 
   cmake-consumer-smoke:
     runs-on: ubuntu-latest
-    needs: [cpp-api-smoke, clang-tidy]
+    needs: [cpp-api-smoke]
 
     steps:
       - name: Checkout

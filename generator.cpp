@@ -1,20 +1,142 @@
 #include "generator.hpp"
 #include "layers.hpp"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <vector>
+
+namespace cubiomes::cpp {
+
+auto setup_generator(Generator &g, std::int32_t mc, std::uint32_t flags) -> void
+{
+    setupGenerator(&g, static_cast<int>(mc), flags);
+}
+
+auto apply_seed(Generator &g, std::int32_t dim, std::uint64_t seed) -> void
+{
+    applySeed(&g, static_cast<int>(dim), seed);
+}
+
+auto min_cache_size(
+    const Generator &g,
+    std::int32_t scale,
+    std::int32_t sx,
+    std::int32_t sy,
+    std::int32_t sz
+) -> std::size_t
+{
+    return getMinCacheSize(&g, static_cast<int>(scale), static_cast<int>(sx), static_cast<int>(sy), static_cast<int>(sz));
+}
+
+auto generate_biomes(const Generator &g, Range r) -> GenerateBiomesResult
+{
+    GenerateBiomesResult result{};
+    const std::size_t cache_len = min_cache_size(g, r.scale, r.sx, r.sy, r.sz);
+    if (cache_len == 0) {
+        result.status = -1;
+        return result;
+    }
+    std::vector<int> cache(cache_len, 0);
+
+    result.status = genBiomes(&g, cache.data(), r);
+    if (result.status != 0) {
+        return result;
+    }
+
+    const std::size_t count = biome_count(r);
+    result.biomes.resize(count);
+    std::transform(cache.begin(), cache.begin() + static_cast<std::ptrdiff_t>(count), result.biomes.begin(), [](int id) {
+        return static_cast<std::int32_t>(id);
+    });
+    return result;
+}
+
+auto biome_at(
+    const Generator &g,
+    std::int32_t scale,
+    std::int32_t x,
+    std::int32_t y,
+    std::int32_t z
+) -> std::int32_t
+{
+    return static_cast<std::int32_t>(getBiomeAt(&g, static_cast<int>(scale), static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)));
+}
+
+auto generate_biomes_into(
+    const Generator &g,
+    Range r,
+    std::span<std::int32_t> out_biomes
+) -> std::int32_t
+{
+    const auto generated = generate_biomes(g, r);
+    if (generated.status != 0) {
+        return generated.status;
+    }
+    if (out_biomes.size() < generated.biomes.size()) {
+        return -1;
+    }
+    std::copy(generated.biomes.begin(), generated.biomes.end(), out_biomes.begin());
+    return 0;
+}
+
+GeneratorEngine::GeneratorEngine(std::int32_t mc, std::uint32_t flags)
+{
+    setup_generator(generator_, mc, flags);
+}
+
+auto GeneratorEngine::reset(std::int32_t mc, std::uint32_t flags) -> void
+{
+    setup_generator(generator_, mc, flags);
+}
+
+auto GeneratorEngine::apply_seed(std::int32_t dim, std::uint64_t seed) -> void
+{
+    cubiomes::cpp::apply_seed(generator_, dim, seed);
+}
+
+auto GeneratorEngine::generate(Range r) const -> GenerateBiomesResult
+{
+    return cubiomes::cpp::generate_biomes(generator_, r);
+}
+
+auto GeneratorEngine::generate_into(Range r, std::span<std::int32_t> out_biomes) const -> std::int32_t
+{
+    return cubiomes::cpp::generate_biomes_into(generator_, r, out_biomes);
+}
+
+auto GeneratorEngine::biome_at(std::int32_t scale, std::int32_t x, std::int32_t y, std::int32_t z) const -> std::int32_t
+{
+    return cubiomes::cpp::biome_at(generator_, scale, x, y, z);
+}
+
+auto GeneratorEngine::c_generator() const noexcept -> const Generator&
+{
+    return generator_;
+}
+
+auto GeneratorEngine::c_generator() noexcept -> Generator&
+{
+    return generator_;
+}
+
+} // namespace cubiomes::cpp
 
 
 int mapOceanMixMod(const Layer * l, int * out, int x, int z, int w, int h)
 {
-    int *otyp;
-    int64_t i, j;
+    std::int64_t i = 0;
+    std::int64_t j = 0;
     l->p2->getMap(l->p2, out, x, z, w, h);
 
-    otyp = (int *) malloc(w*h*sizeof(int));
-    memcpy(otyp, out, w*h*sizeof(int));
+    const auto count = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+    std::vector<int> otyp(count);
+    std::memcpy(otyp.data(), out, count * sizeof(int));
 
     l->p->getMap(l->p, out, x, z, w, h);
 
@@ -30,7 +152,7 @@ int mapOceanMixMod(const Layer * l, int * out, int x, int z, int w, int h)
             if (!isOceanic(landID))
                 continue;
 
-            oceanID = otyp[j*w + i];
+            oceanID = otyp[static_cast<std::size_t>(j*w + i)];
 
             if (landID == deep_ocean)
             {
@@ -55,8 +177,6 @@ int mapOceanMixMod(const Layer * l, int * out, int x, int z, int w, int h)
         }
     }
 
-    free(otyp);
-
     return 0;
 }
 
@@ -71,7 +191,7 @@ void setupGenerator(Generator *g, int mc, uint32_t flags)
     if (mc >= MC_B1_8 && mc <= MC_1_17)
     {
         setupLayerStack(&g->layered.ls, mc, flags & LARGE_BIOMES);
-        g->layered.entry = NULL;
+        g->layered.entry = nullptr;
         if (flags & FORCE_OCEAN_VARIANTS && mc >= MC_1_13)
         {
             g->layered.ls.entry_16 = setupLayer(
@@ -153,7 +273,7 @@ size_t getMinCacheSize(const Generator *g, int scale, int sx, int sy, int sz)
     {   // recursively check the layer stack for the max buffer
         const Layer *entry = getLayerForScale(g, scale);
         if (!entry) {
-            printf("getMinCacheSize(): failed to determine scaled entry\n");
+            std::fprintf(stderr, "getMinCacheSize(): failed to determine scaled entry\n");
             return 0;
         }
         size_t len2d = getMinLayerCacheSize(entry, sx, sz);
@@ -174,8 +294,8 @@ int *allocCache(const Generator *g, Range r)
 {
     size_t len = getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz);
     if (len == 0)
-        return NULL;
-    return (int*) calloc(len, sizeof(int));
+        return nullptr;
+    return static_cast<int*>(std::calloc(len, sizeof(int)));
 }
 
 int genBiomes(const Generator *g, int *cache, Range r)
@@ -206,7 +326,7 @@ int genBiomes(const Generator *g, int *cache, Range r)
         {
             if (g->flags & NO_BETA_OCEAN)
             {
-                err = genBiomeNoiseBetaScaled(&g->bnb, NULL, cache, r);
+                err = genBiomeNoiseBetaScaled(&g->bnb, nullptr, cache, r);
             }
             else
             {
@@ -238,20 +358,17 @@ int genBiomes(const Generator *g, int *cache, Range r)
 int getBiomeAt(const Generator *g, int scale, int x, int y, int z)
 {
     Range r = {scale, x, z, 1, 1, y, 1};
-    int *ids = allocCache(g, r);
-    int id = genBiomes(g, ids, r);
-    if (id == 0)
-        id = ids[0];
-    else
-        id = none;
-    free(ids);
-    return id;
+    const auto generated = cubiomes::cpp::generate_biomes(*g, r);
+    if (generated.status != 0 || generated.biomes.empty()) {
+        return none;
+    }
+    return static_cast<int>(generated.biomes.front());
 }
 
 const Layer *getLayerForScale(const Generator *g, int scale)
 {
     if (g->mc > MC_1_17)
-        return NULL;
+        return nullptr;
     switch (scale)
     {
     case 0:   return g->layered.entry;
@@ -261,7 +378,7 @@ const Layer *getLayerForScale(const Generator *g, int scale)
     case 64:  return g->layered.ls.entry_64;
     case 256: return g->layered.ls.entry_256;
     default:
-        return NULL;
+        return nullptr;
     }
 }
 
@@ -281,8 +398,8 @@ Layer *setupLayer(Layer *l, mapfunc_t *map, int mc,
         l->layerSalt = getLayerSalt(saltbase);
     l->startSalt = 0;
     l->startSeed = 0;
-    l->noise = NULL;
-    l->data = NULL;
+    l->noise = nullptr;
+    l->data = nullptr;
     l->p = p;
     l->p2 = p2;
     return l;
@@ -302,7 +419,7 @@ void setupLayerStack(LayerStack *g, int mc, int largeBiomes)
     if (mc < MC_1_3)
         largeBiomes = 0;
 
-    memset(g, 0, sizeof(LayerStack));
+    *g = {};
     Layer *p, *l = g->layers;
     mapfunc_t *map_land = 0;
     // L: layer
@@ -563,7 +680,7 @@ void setupLayerStack(LayerStack *g, int mc, int largeBiomes)
 static void getMaxArea(
     const Layer *layer, int areaX, int areaZ, int *maxX, int *maxZ, size_t *siz)
 {
-    if (layer == NULL)
+    if (layer == nullptr)
         return;
 
     areaX += layer->edge;
@@ -602,7 +719,7 @@ size_t getMinLayerCacheSize(const Layer *layer, int sizeX, int sizeZ)
 
 int genArea(const Layer *layer, int *out, int areaX, int areaZ, int areaWidth, int areaHeight)
 {
-    memset(out, 0, sizeof(*out)*areaWidth*areaHeight);
+    std::fill_n(out, static_cast<std::size_t>(areaWidth) * static_cast<std::size_t>(areaHeight), 0);
     return layer->getMap(layer, out, areaX, areaZ, areaWidth, areaHeight);
 }
 
@@ -665,14 +782,15 @@ int mapApproxHeight(float *y, int *ids, const Generator *g, const SurfaceNoise *
         3.302044127, 4.104975761, 4.545454545, 4.104975761, 3.302044127,
     };
 
-    double *depth = (double*) malloc(sizeof(double) * 2 * w * h);
-    double *scale = depth + w * h;
+    const auto wh = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+    std::vector<double> depth(wh);
+    std::vector<double> scale(wh);
     int64_t i, j;
     int ii, jj;
 
     Range r = {4, x-2, z-2, w+5, h+5, 0, 1};
-    int *cache = allocCache(g, r);
-    genBiomes(g, cache, r);
+    std::vector<int> cache(getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz), 0);
+    genBiomes(g, cache.data(), r);
 
     for (j = 0; j < h; j++)
     {
@@ -710,15 +828,13 @@ int mapApproxHeight(float *y, int *ids, const Generator *g, const SurfaceNoise *
                 ids[j*w+i] = id0;
         }
     }
-    free(cache);
-
     for (j = 0; j < h; j++)
     {
         for (i = 0; i < w; i++)
         {
             int px = x+i, pz = z+j;
             double off = sampleOctaveAmp(&sn->octdepth, px*200, 10, pz*200, 1, 0, 1);
-            off *= 65535./8000;
+            off *= 65535. / 8000;
             if (off < 0) off = -0.3 * off;
             off = off * 3 - 2;
             if (off > 1) off = 1;
@@ -762,11 +878,5 @@ int mapApproxHeight(float *y, int *ids, const Generator *g, const SurfaceNoise *
             y[j*w+i] = 8 * (vmin / (double)(vmin - vmax) + ymin);
         }
     }
-    free(depth);
     return 0;
 }
-
-
-
-
-

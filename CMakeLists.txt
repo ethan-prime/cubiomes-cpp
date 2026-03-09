@@ -36,6 +36,7 @@ set(HEADERS
 	rng.hpp
 	util.hpp
 	quadbase.hpp
+	cpp_api.hpp
 )
 set(SOURCES
 	finders.cpp
@@ -59,8 +60,10 @@ endif()
 
 add_library(cubiomes SHARED $<TARGET_OBJECTS:objects>)
 add_library(cubiomes_static STATIC $<TARGET_OBJECTS:objects>)
+add_library(cubiomes_cpp STATIC cpp_api.cpp)
 add_library(cubiomes::cubiomes ALIAS cubiomes)
 add_library(cubiomes::cubiomes_static ALIAS cubiomes_static)
+add_library(cubiomes::cubiomes_cpp ALIAS cubiomes_cpp)
 
 target_include_directories(cubiomes
 	PUBLIC
@@ -72,24 +75,41 @@ target_include_directories(cubiomes_static
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 		$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+target_include_directories(cubiomes_cpp
+	PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+
+target_link_libraries(cubiomes_cpp PUBLIC cubiomes_static)
 
 if (UNIX)
 	target_link_libraries(cubiomes PUBLIC m pthread)
 	target_link_libraries(cubiomes_static PUBLIC m pthread)
 endif()
 
+if (CUBIOMES_PEDANTIC)
+	target_compile_options(cubiomes_cpp PRIVATE -Wpedantic)
+endif()
+if (CUBIOMES_STRICT)
+	target_compile_options(cubiomes_cpp PRIVATE -Werror)
+endif()
+
 if (CUBIOMES_BUILD_TESTS)
 	add_executable(cubiomes-tests tests.cpp)
+	add_executable(cubiomes-cpp-api-tests tests_cpp_api.cpp)
 	target_compile_definitions(cubiomes-tests PRIVATE _POSIX_C_SOURCE=200809L)
 	target_link_libraries(cubiomes-tests PRIVATE cubiomes_static)
+	target_link_libraries(cubiomes-cpp-api-tests PRIVATE cubiomes_cpp)
 	if (CUBIOMES_STRICT)
 		target_compile_options(cubiomes-tests PRIVATE -Werror)
+		target_compile_options(cubiomes-cpp-api-tests PRIVATE -Werror)
 	endif()
 endif()
 
 set(CUBIOMES_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/cubiomes")
 
-install(TARGETS cubiomes cubiomes_static
+install(TARGETS cubiomes cubiomes_static cubiomes_cpp
 	EXPORT cubiomesTargets
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

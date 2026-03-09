@@ -27,30 +27,35 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 set(HEADERS
-	finders.hpp
-	generator.hpp
-	layers.hpp
-	biomenoise.hpp
-	biomes.hpp
-	noise.hpp
-	rng.hpp
-	util.hpp
-	quadbase.hpp
-	cpp_api.hpp
+	include/finders.hpp
+	include/generator.hpp
+	include/layers.hpp
+	include/biomenoise.hpp
+	include/biomes.hpp
+	include/noise.hpp
+	include/rng.hpp
+	include/util.hpp
+	include/quadbase.hpp
+	include/cpp_api.hpp
 )
 set(SOURCES
-	finders.cpp
-	generator.cpp
-	layers.cpp
-	biomenoise.cpp
-	biomes.cpp
-	noise.cpp
-	util.cpp
-	quadbase.cpp
+	src/finders.cpp
+	src/generator.cpp
+	src/layers.cpp
+	src/biomenoise.cpp
+	src/biomes.cpp
+	src/noise.cpp
+	src/util.cpp
+	src/quadbase.cpp
 )
 
 add_library(objects OBJECT ${SOURCES})
 set_property(TARGET objects PROPERTY POSITION_INDEPENDENT_CODE 1)
+target_include_directories(objects
+	PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 if (CUBIOMES_PEDANTIC)
 	target_compile_options(objects PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wpedantic>)
 endif()
@@ -60,7 +65,7 @@ endif()
 
 add_library(cubiomes SHARED $<TARGET_OBJECTS:objects>)
 add_library(cubiomes_static STATIC $<TARGET_OBJECTS:objects>)
-add_library(cubiomes_cpp STATIC cpp_api.cpp)
+add_library(cubiomes_cpp STATIC src/cpp_api.cpp)
 add_library(cubiomes::cubiomes ALIAS cubiomes)
 add_library(cubiomes::cubiomes_static ALIAS cubiomes_static)
 add_library(cubiomes::cubiomes_cpp ALIAS cubiomes_cpp)
@@ -68,16 +73,19 @@ add_library(cubiomes::cubiomes_cpp ALIAS cubiomes_cpp)
 target_include_directories(cubiomes
 	PUBLIC
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 		$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_include_directories(cubiomes_static
 	PUBLIC
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 		$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_include_directories(cubiomes_cpp
 	PUBLIC
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 		$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 

@@ -683,24 +683,22 @@ auto from_legacy_colors(const unsigned char in[256][3]) -> BiomeColorTable
 
 } // namespace
 
-auto load_saved_seeds(std::string_view path) -> SeedLoadResult
+auto load_saved_seeds(std::string_view path) -> std::vector<std::uint64_t>
 {
-    SeedLoadResult result{};
     if (path.empty()) {
-        return result;
+        return {};
     }
 
     const std::string path_string{path};
     std::uint64_t count = 0;
     auto *raw = ::loadSavedSeeds(path_string.c_str(), &count);
     if (raw == nullptr || count == 0) {
-        return result;
+        return {};
     }
 
     auto deleter = [](std::uint64_t *p) { std::free(p); };
     std::unique_ptr<std::uint64_t, decltype(deleter)> guard{raw, deleter};
-    result.seeds.assign(raw, raw + count);
-    return result;
+    return std::vector<std::uint64_t>{raw, raw + count};
 }
 
 auto mc_to_string(std::int32_t mc) -> std::string_view

@@ -113,7 +113,7 @@ int testBiomeGen1x1(const int *mc, const uint32_t *expect, int dim, int bits, in
     for (test = 0; test < cnt; test++)
     {
         printf("  [%*d/%*d] MC %-6s dim=%-2d: expecting %08x ... ",
-               1+(cnt>9), test+1, 1+(cnt>9), cnt, mc2str(mc[test]), dim, expect[test]);
+               1+(cnt>9), test+1, 1+(cnt>9), cnt, cubiomes::legacy::mc2str(mc[test]), dim, expect[test]);
         fflush(stdout);
 
         double t = -now();
@@ -167,7 +167,7 @@ uint32_t testAreas(int mc, int dim, int scale)
     }
     t += now();
     printf("  MC %-6s dim %-2d @ 1:%-3d - %08x [%ld msec]\n",
-        mc2str(mc), dim, scale, hash, (long)(t*1e3));
+        cubiomes::legacy::mc2str(mc), dim, scale, hash, (long)(t*1e3));
     return hash;
 }
 
@@ -306,7 +306,7 @@ void testNoiseRangeFinder()
     }
 
     printf("bad:%d k_tot: %d / %ld ~ %g : %d\n", bad, k_tot, seed, k_tot / (double)seed, n*n);
-    savePPM("img.ppm", pix, n, n);
+    cubiomes::legacy::savePPM("img.ppm", pix, n, n);
 }
 
 
@@ -364,7 +364,7 @@ void findBiomeParaBounds()
         if (!isOverworld(MC_1_21, i))
             continue;
 
-        printf("{%-24s", biome2str(MC_1_21, i));
+        printf("{%-24s", cubiomes::legacy::biome2str(MC_1_21, i));
         for (j = 0; j < 6; j++)
         {
             printf(", %6ld,%6ld", bbounds[i][j][0], bbounds[i][j][1]);
@@ -400,10 +400,10 @@ static void canGenerateTest(int mc, int layerId)
         if (cnt != 0 && can == 1)
             continue;
         ok = 0;
-        printf("can:%d, cnt:%d (%s)\n", can, cnt, biome2str(mc, i));
+        printf("can:%d, cnt:%d (%s)\n", can, cnt, cubiomes::legacy::biome2str(mc, i));
     }
     printf("canBiomesGenerate() for MC %-4s, layer (%d) %s!\n",
-        mc2str(mc), layerId, ok ? "PASSED" : "FAILED");
+        cubiomes::legacy::mc2str(mc), layerId, ok ? "PASSED" : "FAILED");
 }
 
 void testCanBiomesGenerate()

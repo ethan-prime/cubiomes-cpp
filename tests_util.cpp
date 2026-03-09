@@ -21,7 +21,7 @@ int main()
         std::fclose(fp);
 
         uint64_t count = 0;
-        uint64_t *seeds = loadSavedSeeds(path, &count);
+        uint64_t *seeds = cubiomes::legacy::loadSavedSeeds(path, &count);
         if (!require(seeds != nullptr)) return 1;
         if (!require(count == 3)) return 1;
         if (!require(seeds[0] == 1)) return 1;
@@ -39,8 +39,8 @@ int main()
         std::fputs("22\n", fp);
         std::fclose(fp);
         const auto loaded = cubiomes::cpp::load_saved_seeds(path);
-        if (!require(loaded.seeds.size() == 2)) return 1;
-        if (!require(loaded.seeds[0] == 11 && loaded.seeds[1] == 22)) return 1;
+        if (!require(loaded.size() == 2)) return 1;
+        if (!require(loaded[0] == 11 && loaded[1] == 22)) return 1;
         std::remove(path);
     }
 
@@ -53,13 +53,13 @@ int main()
 
     {
         unsigned char colors[256][3] = {};
-        initBiomeColors(colors);
+        cubiomes::legacy::initBiomeColors(colors);
         const char *buf =
             "plains #112233\n"
             "5 7 8 9\n"
             "mangrove_swamp 0x010203\n";
 
-        const int mapped = parseBiomeColors(colors, buf);
+        const int mapped = cubiomes::legacy::parseBiomeColors(colors, buf);
         if (!require(mapped == 3)) return 1;
         if (!require(colors[plains][0] == 0x11 && colors[plains][1] == 0x22 && colors[plains][2] == 0x33)) return 1;
         if (!require(colors[5][0] == 7 && colors[5][1] == 8 && colors[5][2] == 9)) return 1;
@@ -68,10 +68,10 @@ int main()
 
     {
         unsigned char colors[256][3] = {};
-        initBiomeColors(colors);
+        cubiomes::legacy::initBiomeColors(colors);
         const int biomes[] = {plains, -1, ocean, 999};
         unsigned char pixels[4 * 3] = {};
-        const int invalid = biomesToImage(pixels, colors, biomes, 2, 2, 1, 0);
+        const int invalid = cubiomes::legacy::biomesToImage(pixels, colors, biomes, 2, 2, 1, 0);
         if (!require(invalid == 1)) return 1;
     }
 
@@ -81,7 +81,7 @@ int main()
             0, 255, 0,
         };
         const char *path = "tests_util.ppm";
-        if (!require(savePPM(path, pixels, 2, 1) == 0)) return 1;
+        if (!require(cubiomes::legacy::savePPM(path, pixels, 2, 1) == 0)) return 1;
 
         std::FILE *fp = std::fopen(path, "rb");
         if (!require(fp != nullptr)) return 1;

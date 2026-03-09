@@ -10,10 +10,6 @@ namespace cubiomes::cpp {
 
 using BiomeColorTable = std::array<std::array<std::uint8_t, 3>, 256>;
 
-struct SeedLoadResult {
-    std::vector<std::uint64_t> seeds{};
-};
-
 struct ParseBiomeColorsResult {
     std::int32_t mapped_count{};
 };
@@ -28,7 +24,7 @@ enum class SavePpmStatus : std::int32_t {
     WriteFailed = 1,
 };
 
-auto load_saved_seeds(std::string_view path) -> SeedLoadResult;
+auto load_saved_seeds(std::string_view path) -> std::vector<std::uint64_t>;
 auto mc_to_string(std::int32_t mc) -> std::string_view;
 auto mc_from_string(std::string_view value) -> std::int32_t;
 auto biome_to_string(std::int32_t mc, std::int32_t id) -> std::string_view;

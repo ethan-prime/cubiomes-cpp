@@ -1,5 +1,6 @@
 #include "util.hpp"
 #include "biomes.hpp"
+#include "finders.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -28,6 +29,26 @@ int main()
         if (!require(seeds[2] == 3)) return 1;
         std::free(seeds);
         std::remove(path);
+    }
+
+    {
+        const char *path = "tests_util_seeds_cpp.txt";
+        std::FILE *fp = std::fopen(path, "w");
+        if (!require(fp != nullptr)) return 1;
+        std::fputs("11\n", fp);
+        std::fputs("22\n", fp);
+        std::fclose(fp);
+        const auto loaded = cubiomes::cpp::load_saved_seeds(path);
+        if (!require(loaded.seeds.size() == 2)) return 1;
+        if (!require(loaded.seeds[0] == 11 && loaded.seeds[1] == 22)) return 1;
+        std::remove(path);
+    }
+
+    {
+        if (!require(cubiomes::cpp::mc_to_string(MC_1_20) == "1.20")) return 1;
+        if (!require(cubiomes::cpp::mc_from_string("1.21.2") == MC_1_21_3)) return 1;
+        if (!require(cubiomes::cpp::biome_to_string(MC_1_21, plains) == "plains")) return 1;
+        if (!require(cubiomes::cpp::structure_to_string(Village) == "village")) return 1;
     }
 
     {

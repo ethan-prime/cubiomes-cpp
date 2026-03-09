@@ -1,7 +1,58 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <span>
+#include <string_view>
+#include <vector>
 
-#include <stdint.h>
+namespace cubiomes::cpp {
+
+using BiomeColorTable = std::array<std::array<std::uint8_t, 3>, 256>;
+
+struct SeedLoadResult {
+    std::vector<std::uint64_t> seeds{};
+};
+
+struct ParseBiomeColorsResult {
+    std::int32_t mapped_count{};
+};
+
+struct ImageRenderResult {
+    bool contains_invalid_biomes{};
+};
+
+enum class SavePpmStatus : std::int32_t {
+    OpenFailed = -1,
+    Ok = 0,
+    WriteFailed = 1,
+};
+
+auto load_saved_seeds(std::string_view path) -> SeedLoadResult;
+auto mc_to_string(std::int32_t mc) -> std::string_view;
+auto mc_from_string(std::string_view value) -> std::int32_t;
+auto biome_to_string(std::int32_t mc, std::int32_t id) -> std::string_view;
+auto structure_to_string(std::int32_t structure_type) -> std::string_view;
+auto default_biome_colors() -> BiomeColorTable;
+auto default_biome_type_colors() -> BiomeColorTable;
+auto parse_biome_colors(BiomeColorTable &colors, std::string_view buffer) -> ParseBiomeColorsResult;
+auto biomes_to_image(
+    std::span<std::uint8_t> pixels,
+    const BiomeColorTable &biome_colors,
+    std::span<const std::int32_t> biomes,
+    std::uint32_t sx,
+    std::uint32_t sy,
+    std::uint32_t pixscale,
+    bool flip
+) -> ImageRenderResult;
+auto save_ppm(
+    std::string_view path,
+    std::span<const std::uint8_t> pixels,
+    std::uint32_t sx,
+    std::uint32_t sy
+) -> SavePpmStatus;
+
+} // namespace cubiomes::cpp
 
 /* Loads a list of seeds from a file. The seeds should be written as decimal
  * ASCII numbers separated by newlines.
@@ -11,7 +62,7 @@
  *
  * Return a pointer to a dynamically allocated seed list.
  */
-uint64_t *loadSavedSeeds(const char *fnam, uint64_t *scnt);
+std::uint64_t *loadSavedSeeds(const char *fnam, std::uint64_t *scnt);
 
 
 /// convert between version enum and text
@@ -48,4 +99,15 @@ int biomesToImage(unsigned char *pixels,
 int savePPM(const char* path, const unsigned char *pixels,
         const unsigned int sx, const unsigned int sy);
 
-
+namespace cubiomes::legacy {
+using ::biome2str;
+using ::biomesToImage;
+using ::initBiomeColors;
+using ::initBiomeTypeColors;
+using ::loadSavedSeeds;
+using ::mc2str;
+using ::parseBiomeColors;
+using ::savePPM;
+using ::str2mc;
+using ::struct2str;
+} // namespace cubiomes::legacy

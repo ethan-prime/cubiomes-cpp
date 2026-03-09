@@ -141,6 +141,33 @@ inline auto parse_seed_line(std::string_view line, std::uint64_t &seed) -> bool
     return true;
 }
 
+auto load_saved_seeds_vector(std::string_view path) -> std::vector<std::uint64_t>
+{
+    if (path.empty()) {
+        return {};
+    }
+
+    const std::string path_string{path};
+    std::FILE *fp = std::fopen(path_string.c_str(), "r");
+    if (fp == nullptr) {
+        return {};
+    }
+
+    std::vector<std::uint64_t> seeds{};
+    std::array<char, 256> line{};
+    while (std::fgets(line.data(), static_cast<int>(line.size()), fp) != nullptr) {
+        std::uint64_t seed = 0;
+        if (parse_seed_line(line.data(), seed)) {
+            seeds.push_back(seed);
+        }
+    }
+    std::fclose(fp);
+    return seeds;
+}
+
+auto biome_to_cstr(std::int32_t mc, std::int32_t id) -> const char*;
+auto structure_to_cstr(std::int32_t stype) -> const char*;
+
 } // namespace cubiomes::detail
 
 namespace {
@@ -197,24 +224,10 @@ uint64_t *loadSavedSeeds(const char *fnam, uint64_t *scnt)
     if (scnt == nullptr || fnam == nullptr) {
         return nullptr;
     }
-    *scnt = 0;
-
-    std::FILE *fp = std::fopen(fnam, "r");
-    if (fp == nullptr) {
-        return nullptr;
-    }
-
-    std::vector<std::uint64_t> seeds{};
-    std::array<char, 256> line{};
-    while (std::fgets(line.data(), static_cast<int>(line.size()), fp) != nullptr) {
-        std::uint64_t seed = 0;
-        if (cubiomes::detail::parse_seed_line(line.data(), seed)) {
-            seeds.push_back(seed);
-        }
-    }
-    std::fclose(fp);
+    const auto seeds = cubiomes::detail::load_saved_seeds_vector(fnam);
 
     if (seeds.empty()) {
+        *scnt = 0;
         return nullptr;
     }
 
@@ -222,6 +235,7 @@ uint64_t *loadSavedSeeds(const char *fnam, uint64_t *scnt)
         std::calloc(seeds.size(), sizeof(std::uint64_t))
     );
     if (base_seeds == nullptr) {
+        *scnt = 0;
         return nullptr;
     }
     std::ranges::copy(seeds, base_seeds);
@@ -244,7 +258,7 @@ int str2mc(const char *s)
 }
 
 
-const char *biome2str(int mc, int id)
+auto cubiomes::detail::biome_to_cstr(std::int32_t mc, std::int32_t id) -> const char*
 {
     using NamePair = std::pair<int, const char *>;
     static constexpr auto kBiomeRenamed118 = std::array{
@@ -319,7 +333,7 @@ const char *biome2str(int mc, int id)
     return nullptr;
 }
 
-const char* struct2str(int stype)
+auto cubiomes::detail::structure_to_cstr(std::int32_t stype) -> const char*
 {
     using NamePair = std::pair<int, const char *>;
     static constexpr auto kStructureNames = std::array{
@@ -352,6 +366,16 @@ const char* struct2str(int stype)
         return entry->second;
     }
     return nullptr;
+}
+
+const char *biome2str(int mc, int id)
+{
+    return cubiomes::detail::biome_to_cstr(mc, id);
+}
+
+const char* struct2str(int stype)
+{
+    return cubiomes::detail::structure_to_cstr(stype);
 }
 
 namespace cubiomes::detail {
@@ -516,6 +540,11 @@ public:
         }
     }
 
+    auto rgb(std::size_t index) const -> std::array<unsigned char, 3>
+    {
+        return rgb_[index];
+    }
+
 private:
     RgbTable rgb_{};
 };
@@ -569,7 +598,9 @@ static int _str2id(const char *s)
     return best_id;
 }
 
-int parseBiomeColors(unsigned char biomeColors[256][3], const char *buf)
+namespace cubiomes::detail {
+
+auto parse_biome_colors_impl(unsigned char biomeColors[256][3], const char *buf) -> std::int32_t
 {
     if (buf == nullptr) {
         return 0;
@@ -645,10 +676,15 @@ int parseBiomeColors(unsigned char biomeColors[256][3], const char *buf)
 }
 
 
-int biomesToImage(unsigned char *pixels,
-        unsigned char biomeColors[256][3], const int *biomes,
-        const unsigned int sx, const unsigned int sy,
-        const unsigned int pixscale, const int flip)
+auto biomes_to_image_impl(
+    unsigned char *pixels,
+    unsigned char biomeColors[256][3],
+    const int *biomes,
+    std::uint32_t sx,
+    std::uint32_t sy,
+    std::uint32_t pixscale,
+    bool flip
+) -> std::int32_t
 {
     auto darken_component = [](unsigned char c) -> unsigned char {
         return c > 40 ? static_cast<unsigned char>(c - 40) : 0;
@@ -675,7 +711,7 @@ int biomesToImage(unsigned char *pixels,
             for (std::size_t m = 0; m < pixscale; ++m) {
                 for (std::size_t n = 0; n < pixscale; ++n) {
                     std::size_t idx = (pixscale * i) + n;
-                    if (flip != 0) {
+                    if (flip) {
                         idx += (sx * pixscale) * ((pixscale * j) + m);
                     } else {
                         idx += (sx * pixscale) * ((pixscale * (sy - 1 - j)) + m);
@@ -691,6 +727,29 @@ int biomesToImage(unsigned char *pixels,
     }
 
     return contains_invalid_biomes;
+}
+
+} // namespace cubiomes::detail
+
+int parseBiomeColors(unsigned char biomeColors[256][3], const char *buf)
+{
+    return cubiomes::detail::parse_biome_colors_impl(biomeColors, buf);
+}
+
+int biomesToImage(unsigned char *pixels,
+        unsigned char biomeColors[256][3], const int *biomes,
+        const unsigned int sx, const unsigned int sy,
+        const unsigned int pixscale, const int flip)
+{
+    return cubiomes::detail::biomes_to_image_impl(
+        pixels,
+        biomeColors,
+        biomes,
+        sx,
+        sy,
+        pixscale,
+        flip != 0
+    );
 }
 
 int savePPM(const char *path, const unsigned char *pixels, const unsigned int sx, const unsigned int sy)
@@ -735,20 +794,7 @@ auto from_legacy_colors(const unsigned char in[256][3]) -> BiomeColorTable
 
 auto load_saved_seeds(std::string_view path) -> std::vector<std::uint64_t>
 {
-    if (path.empty()) {
-        return {};
-    }
-
-    const std::string path_string{path};
-    std::uint64_t count = 0;
-    auto *raw = ::loadSavedSeeds(path_string.c_str(), &count);
-    if (raw == nullptr || count == 0) {
-        return {};
-    }
-
-    auto deleter = [](std::uint64_t *p) { std::free(p); };
-    std::unique_ptr<std::uint64_t, decltype(deleter)> guard{raw, deleter};
-    return std::vector<std::uint64_t>{raw, raw + count};
+    return cubiomes::detail::load_saved_seeds_vector(path);
 }
 
 auto mc_to_string(std::int32_t mc) -> std::string_view
@@ -777,7 +823,7 @@ auto mc_from_string(std::string_view value) -> std::int32_t
 
 auto biome_to_string(std::int32_t mc, std::int32_t id) -> std::string_view
 {
-    if (const char *name = ::biome2str(static_cast<int>(mc), static_cast<int>(id)); name != nullptr) {
+    if (const char *name = cubiomes::detail::biome_to_cstr(mc, id); name != nullptr) {
         return std::string_view{name};
     }
     return {};
@@ -785,7 +831,7 @@ auto biome_to_string(std::int32_t mc, std::int32_t id) -> std::string_view
 
 auto structure_to_string(std::int32_t structure_type) -> std::string_view
 {
-    if (const char *name = ::struct2str(static_cast<int>(structure_type)); name != nullptr) {
+    if (const char *name = cubiomes::detail::structure_to_cstr(structure_type); name != nullptr) {
         return std::string_view{name};
     }
     return {};
@@ -793,16 +839,20 @@ auto structure_to_string(std::int32_t structure_type) -> std::string_view
 
 auto default_biome_colors() -> BiomeColorTable
 {
-    unsigned char legacy[256][3]{};
-    ::initBiomeColors(legacy);
-    return from_legacy_colors(legacy);
+    BiomeColorTable colors{};
+    for (std::size_t i = 0; i < colors.size(); ++i) {
+        colors[i] = cubiomes::detail::kBiomeColorMap.rgb(i);
+    }
+    return colors;
 }
 
 auto default_biome_type_colors() -> BiomeColorTable
 {
-    unsigned char legacy[256][3]{};
-    ::initBiomeTypeColors(legacy);
-    return from_legacy_colors(legacy);
+    BiomeColorTable colors{};
+    for (std::size_t i = 0; i < colors.size(); ++i) {
+        colors[i] = cubiomes::detail::kBiomeTypeColorMap.rgb(i);
+    }
+    return colors;
 }
 
 auto parse_biome_colors(BiomeColorTable &colors, std::string_view buffer) -> ParseBiomeColorsResult
@@ -810,8 +860,8 @@ auto parse_biome_colors(BiomeColorTable &colors, std::string_view buffer) -> Par
     ParseBiomeColorsResult result{};
     unsigned char legacy[256][3]{};
     to_legacy_colors(colors, legacy);
-    const std::string tmp{buffer};
-    result.mapped_count = ::parseBiomeColors(legacy, tmp.c_str());
+    std::string tmp{buffer};
+    result.mapped_count = cubiomes::detail::parse_biome_colors_impl(legacy, tmp.c_str());
     colors = from_legacy_colors(legacy);
     return result;
 }
@@ -844,14 +894,14 @@ auto biomes_to_image(
         return result;
     }
 
-    result.contains_invalid_biomes = (::biomesToImage(
+    result.contains_invalid_biomes = (cubiomes::detail::biomes_to_image_impl(
         pixels.data(),
         legacy_colors,
         legacy_biomes.data(),
         sx,
         sy,
         pixscale,
-        flip ? 1 : 0
+        flip
     ) != 0);
     return result;
 }

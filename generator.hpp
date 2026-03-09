@@ -143,6 +143,18 @@ struct GenerateBiomesResult {
     std::vector<std::int32_t> biomes{};
 };
 
+constexpr auto normalized_sy(std::int32_t sy) -> std::int32_t
+{
+    return sy == 0 ? 1 : sy;
+}
+
+constexpr auto biome_count(const Range &r) -> std::size_t
+{
+    return static_cast<std::size_t>(r.sx) *
+        static_cast<std::size_t>(r.sz) *
+        static_cast<std::size_t>(normalized_sy(r.sy));
+}
+
 auto setup_generator(Generator &g, std::int32_t mc, std::uint32_t flags) -> void;
 auto apply_seed(Generator &g, std::int32_t dim, std::uint64_t seed) -> void;
 auto min_cache_size(
@@ -161,6 +173,29 @@ auto biome_at(
     std::int32_t z
 ) -> std::int32_t;
 
+auto generate_biomes_into(
+    const Generator &g,
+    Range r,
+    std::span<std::int32_t> out_biomes
+) -> std::int32_t;
+
+class GeneratorEngine final {
+public:
+    explicit GeneratorEngine(std::int32_t mc, std::uint32_t flags = 0U);
+
+    auto reset(std::int32_t mc, std::uint32_t flags = 0U) -> void;
+    auto apply_seed(std::int32_t dim, std::uint64_t seed) -> void;
+    auto generate(Range r) const -> GenerateBiomesResult;
+    auto generate_into(Range r, std::span<std::int32_t> out_biomes) const -> std::int32_t;
+    auto biome_at(std::int32_t scale, std::int32_t x, std::int32_t y, std::int32_t z) const -> std::int32_t;
+
+    [[nodiscard]] auto c_generator() const noexcept -> const Generator&;
+    [[nodiscard]] auto c_generator() noexcept -> Generator&;
+
+private:
+    Generator generator_{};
+};
+
 } // namespace cubiomes::cpp
 
 namespace cubiomes::legacy {
@@ -176,4 +211,3 @@ using ::setupGenerator;
 using ::setupLayer;
 using ::setupLayerStack;
 } // namespace cubiomes::legacy
-

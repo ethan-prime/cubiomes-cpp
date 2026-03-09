@@ -64,6 +64,22 @@ int main()
         return 1;
     }
 
+    cubiomes::cpp::GeneratorEngine engine{MC_1_20, 0};
+    engine.apply_seed(DIM_OVERWORLD, 262);
+    const auto generated2 = engine.generate(r);
+    if (generated2.status != 0 || generated2.biomes.size() != n) {
+        return 1;
+    }
+    std::vector<std::int32_t> out(n, 0);
+    if (engine.generate_into(r, out) != 0) {
+        return 1;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        if (out[i] != generated2.biomes[i]) {
+            return 1;
+        }
+    }
+
     bool threw = false;
     try {
         Range bad = {4, 0, 0, 0, 1, 0, 1};

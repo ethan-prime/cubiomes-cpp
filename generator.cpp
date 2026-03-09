@@ -1,5 +1,5 @@
-#include "generator.h"
-#include "layers.h"
+#include "generator.hpp"
+#include "layers.hpp"
 
 #include <stdio.h>
 #include <stdlib.h>

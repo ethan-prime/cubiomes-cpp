@@ -1,10 +1,10 @@
-#include "biomenoise.h"
+#include "biomenoise.hpp"
 
-#include "tables/btree18.h"
-#include "tables/btree192.h"
-#include "tables/btree19.h"
-#include "tables/btree20.h"
-#include "tables/btree21wd.h"
+#include "tables/btree18.hpp"
+#include "tables/btree192.hpp"
+#include "tables/btree19.hpp"
+#include "tables/btree20.hpp"
+#include "tables/btree21wd.hpp"
 
 #include <stdlib.h>
 #include <string.h>

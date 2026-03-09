@@ -1,5 +1,5 @@
-#include "util.h"
-#include "finders.h"
+#include "util.hpp"
+#include "finders.hpp"
 
 #include <stdio.h>
 #include <string.h>

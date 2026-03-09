@@ -1,7 +1,7 @@
 #pragma once
 
 
-#include "generator.h"
+#include "generator.hpp"
 
 
 #ifdef __cplusplus

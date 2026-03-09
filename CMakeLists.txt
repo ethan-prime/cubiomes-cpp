@@ -27,15 +27,15 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 set(HEADERS
-	finders.h
-	generator.h
-	layers.h
-	biomenoise.h
-	biomes.h
-	noise.h
-	rng.h
-	util.h
-	quadbase.h
+	finders.hpp
+	generator.hpp
+	layers.hpp
+	biomenoise.hpp
+	biomes.hpp
+	noise.hpp
+	rng.hpp
+	util.hpp
+	quadbase.hpp
 )
 set(SOURCES
 	finders.cpp

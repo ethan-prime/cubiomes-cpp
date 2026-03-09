@@ -1,5 +1,5 @@
-#include "finders.h"
-#include "util.h"
+#include "finders.hpp"
+#include "util.hpp"
 
 #include <sys/time.h>
 #include <time.h>

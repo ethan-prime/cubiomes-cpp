@@ -1,7 +1,7 @@
 #pragma once
 
-#include "layers.h"
-#include "biomenoise.h"
+#include "layers.hpp"
+#include "biomenoise.hpp"
 
 // generator flags
 enum

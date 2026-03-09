@@ -25,7 +25,7 @@ Let's create a simple program called `find_biome_at.c` which tests seeds for a M
 
 ```C
 // check the biome at a block position
-#include "generator.h"
+#include "generator.hpp"
 #include <stdio.h>
 
 int main()
@@ -86,8 +86,8 @@ The only supported values for `scale` are 1, 4, 16, 64, and (for the Overworld) 
 
 ```C
 // generate an image of the world
-#include "generator.h"
-#include "util.h"
+#include "generator.hpp"
+#include "util.hpp"
 
 int main()
 {
@@ -143,7 +143,7 @@ Note: some structures (in particular desert pyramids, jungle temples, and woodla
 
 ```C
 // find a seed with a certain structure at the origin chunk
-#include "finders.h"
+#include "finders.hpp"
 #include <stdio.h>
 
 int main()
@@ -193,7 +193,7 @@ The function `searchAll48()` can be used to find a complete set of 48-bit seed b
 
 ```C
 // find seeds with a quad-witch-hut about the origin
-#include "quadbase.h"
+#include "quadbase.hpp"
 #include <stdio.h>
 
 int check(uint64_t s48, void *data)
@@ -269,7 +269,7 @@ Strongholds, as well as the world spawn point, actually search until they find a
 
 ```C
 // find spawn and the first N strongholds
-#include "finders.h"
+#include "finders.hpp"
 #include <stdio.h>
 
 int main()

@@ -1,7 +1,7 @@
 #pragma once
 
 
-#include "finders.h"
+#include "finders.hpp"
 
 #include <stdio.h>
 #include <math.h>

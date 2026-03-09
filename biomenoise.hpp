@@ -1,7 +1,7 @@
 #pragma once
 
-#include "noise.h"
-#include "layers.h"
+#include "noise.hpp"
+#include "layers.hpp"
 
 
 STRUCT(Range)

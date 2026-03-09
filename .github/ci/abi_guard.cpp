@@ -1,5 +1,5 @@
-#include "generator.h"
-#include "layers.h"
+#include "generator.hpp"
+#include "layers.hpp"
 #include <cstddef>
 
 #if defined(__x86_64__) && __SIZEOF_POINTER__ == 8

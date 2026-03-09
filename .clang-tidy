@@ -1,4 +1,14 @@
-Checks: '-*,clang-analyzer-*'
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-bool-literals,
+  readability-implicit-bool-conversion
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*'
 FormatStyle: none
+CheckOptions:
+  - key: bugprone-easily-swappable-parameters.MinimumLength
+    value: '4'

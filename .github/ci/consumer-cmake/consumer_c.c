@@ -1,4 +1,4 @@
-#include "generator.h"
+#include "generator.hpp"
 #include <stdint.h>
 
 int main(void)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rng.h"
+#include "rng.hpp"
 #include <math.h>
 
 STRUCT(PerlinNoise)

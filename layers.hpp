@@ -121,11 +121,6 @@ STRUCT(LayerStack)
 };
 
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 //==============================================================================
 // Essentials
 //==============================================================================
@@ -184,7 +179,4 @@ void mapVoronoiPlane(uint64_t sha, int *out, int *src,
     int x, int z, int w, int h, int y, int px, int pz, int pw, int ph);
 
 
-#ifdef __cplusplus
-}
-#endif
 

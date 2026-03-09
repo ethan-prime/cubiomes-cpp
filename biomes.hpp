@@ -175,11 +175,6 @@ enum BiomeID
 };
 
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 //==============================================================================
 // BiomeID Helper Functions
 //==============================================================================
@@ -196,7 +191,4 @@ int isDeepOcean(int id);
 int isOceanic(int id);
 int isSnowy(int id);
 
-#ifdef __cplusplus
-}
-#endif
 

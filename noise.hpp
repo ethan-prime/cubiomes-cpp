@@ -27,11 +27,6 @@ STRUCT(DoublePerlinNoise)
     OctaveNoise octB;
 };
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /// Helper
 static inline ATTR(hot, const)
 double maintainPrecision(double x)
@@ -77,7 +72,4 @@ double sampleDoublePerlin(const DoublePerlinNoise *noise,
         double x, double y, double z);
 
 
-#ifdef __cplusplus
-}
-#endif
 

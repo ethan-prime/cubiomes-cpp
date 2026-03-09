@@ -3,11 +3,6 @@
 
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Loads a list of seeds from a file. The seeds should be written as decimal
  * ASCII numbers separated by newlines.
  * @fnam: file path
@@ -53,7 +48,4 @@ int biomesToImage(unsigned char *pixels,
 int savePPM(const char* path, const unsigned char *pixels,
         const unsigned int sx, const unsigned int sy);
 
-#ifdef __cplusplus
-}
-#endif
 

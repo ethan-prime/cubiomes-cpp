@@ -29,7 +29,7 @@ public:
     [[nodiscard]] ::Generator& c_generator() noexcept;
 
 private:
-    ::Generator generator_{};
+    GeneratorEngine engine_;
 };
 
 } // namespace cubiomes::cpp

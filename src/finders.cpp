@@ -1,15 +1,277 @@
 #include "finders.hpp"
 #include "biomes.hpp"
+#include "legacy_generator.hpp"
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <limits.h>
-#include <float.h>
-#include <math.h>
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <span>
+#include <tuple>
+#include <utility>
+#include <vector>
 
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
+#include <climits>
+#include <cfloat>
+#include <cmath>
 
 #define PI 3.14159265358979323846
+
+namespace {
+
+auto get_house_list_impl(std::span<int, 9> out, std::uint64_t seed, int chunk_x, int chunk_z) -> std::uint64_t;
+auto get_fixed_end_gateways_impl(int mc, std::uint64_t seed, std::span<Pos, 20> out) -> void;
+auto get_linked_gateway_chunk_impl(
+    const EndNoise *en,
+    const SurfaceNoise *sn,
+    std::uint64_t seed,
+    Pos src,
+    Pos *dst
+) -> Pos;
+auto get_linked_gateway_pos_impl(const EndNoise *en, const SurfaceNoise *sn, std::uint64_t seed, Pos src) -> Pos;
+auto get_variant_impl(
+    StructureVariant *r,
+    int struct_type,
+    int mc,
+    std::uint64_t seed,
+    int x,
+    int z,
+    int biome_id
+) -> int;
+
+} // namespace
+
+namespace cubiomes::cpp {
+
+auto structure_config(std::int32_t structure_type, std::int32_t mc) -> std::optional<StructureConfig>
+{
+    StructureConfig config{};
+    if (!getStructureConfig(structure_type, mc, &config)) {
+        return std::nullopt;
+    }
+    return config;
+}
+
+auto structure_position(
+    std::int32_t structure_type,
+    std::int32_t mc,
+    std::uint64_t seed,
+    std::int32_t reg_x,
+    std::int32_t reg_z
+) -> std::optional<Pos>
+{
+    Pos position{};
+    if (!getStructurePos(structure_type, mc, seed, reg_x, reg_z, &position)) {
+        return std::nullopt;
+    }
+    return position;
+}
+
+auto mineshafts(
+    std::int32_t mc,
+    std::uint64_t seed,
+    std::int32_t chunk_x,
+    std::int32_t chunk_z,
+    std::int32_t chunk_w,
+    std::int32_t chunk_h
+) -> std::vector<Pos>
+{
+    const auto capacity = static_cast<std::size_t>(std::max(chunk_w, 0) * std::max(chunk_h, 0));
+    std::vector<Pos> positions(capacity);
+    const auto found = getMineshafts(
+        mc,
+        seed,
+        chunk_x,
+        chunk_z,
+        chunk_w,
+        chunk_h,
+        positions.data(),
+        static_cast<int>(positions.size())
+    );
+    positions.resize(static_cast<std::size_t>(std::max(found, 0)));
+    return positions;
+}
+
+auto locate_biome(
+    const Generator &g,
+    std::int32_t x,
+    std::int32_t y,
+    std::int32_t z,
+    std::int32_t radius,
+    std::uint64_t valid_b,
+    std::uint64_t valid_m,
+    std::uint64_t rng
+) -> LocateBiomeResult
+{
+    auto passes = 0;
+    auto rng_copy = rng;
+    const auto position = locateBiome(&g, x, y, z, radius, valid_b, valid_m, &rng_copy, &passes);
+    return LocateBiomeResult{
+        .position = position,
+        .passes = passes,
+    };
+}
+
+auto estimate_spawn(const Generator &g) -> SpawnEstimateResult
+{
+    std::uint64_t rng{};
+    const auto position = estimateSpawn(&g, &rng);
+    return SpawnEstimateResult{
+        .position = position,
+        .rng = rng,
+    };
+}
+
+auto spawn(const Generator &g) -> Pos
+{
+    return getSpawn(&g);
+}
+
+StrongholdFinder::StrongholdFinder(std::int32_t mc, std::uint64_t s48)
+{
+    (void)initFirstStronghold(&iter_, mc, s48);
+}
+
+auto StrongholdFinder::initial_approximation() const noexcept -> Pos
+{
+    return iter_.nextapprox;
+}
+
+auto StrongholdFinder::state() const noexcept -> const StrongholdIter&
+{
+    return iter_;
+}
+
+auto StrongholdFinder::next(const Generator *g) -> std::int32_t
+{
+    return nextStronghold(&iter_, g);
+}
+
+BiomeFilterBuilder::BiomeFilterBuilder(std::int32_t mc, std::uint32_t flags) : mc_(mc), flags_(flags) {}
+
+auto BiomeFilterBuilder::require(std::int32_t biome_id) -> BiomeFilterBuilder&
+{
+    required_.push_back(biome_id);
+    return *this;
+}
+
+auto BiomeFilterBuilder::exclude(std::int32_t biome_id) -> BiomeFilterBuilder&
+{
+    excluded_.push_back(biome_id);
+    return *this;
+}
+
+auto BiomeFilterBuilder::match_any(std::int32_t biome_id) -> BiomeFilterBuilder&
+{
+    match_any_.push_back(biome_id);
+    return *this;
+}
+
+auto BiomeFilterBuilder::build() const -> BiomeFilter
+{
+    BiomeFilter filter{};
+    setupBiomeFilter(
+        &filter,
+        mc_,
+        flags_,
+        required_.empty() ? nullptr : required_.data(),
+        static_cast<int>(required_.size()),
+        excluded_.empty() ? nullptr : excluded_.data(),
+        static_cast<int>(excluded_.size()),
+        match_any_.empty() ? nullptr : match_any_.data(),
+        static_cast<int>(match_any_.size())
+    );
+    return filter;
+}
+
+auto check_for_biomes(
+    Generator &g,
+    Range r,
+    std::int32_t dim,
+    std::uint64_t seed,
+    const BiomeFilter &filter
+) -> CheckBiomesResult
+{
+    CheckBiomesResult result{};
+    const auto cache_len = getMinCacheSize(&g, r.scale, r.sx, r.sy, r.sz);
+    if (cache_len == 0) {
+        result.status = -1;
+        return result;
+    }
+
+    std::vector<int> cache(cache_len, 0);
+    result.status = checkForBiomes(&g, cache.data(), r, dim, seed, &filter, nullptr);
+    if (result.status != 1) {
+        return result;
+    }
+
+    const auto count = static_cast<std::size_t>(r.sx) *
+        static_cast<std::size_t>(r.sz) *
+        static_cast<std::size_t>(r.sy == 0 ? 1 : r.sy);
+    result.biomes.resize(count);
+    std::transform(cache.begin(), cache.begin() + static_cast<std::ptrdiff_t>(count), result.biomes.begin(), [](int biome) {
+        return static_cast<std::int32_t>(biome);
+    });
+    return result;
+}
+
+auto parameter_range(
+    const DoublePerlinNoise &parameter,
+    std::int32_t x,
+    std::int32_t z,
+    std::int32_t w,
+    std::int32_t h
+) -> ParameterRangeResult
+{
+    ParameterRangeResult result{};
+    result.status = getParaRange(&parameter, &result.minimum, &result.maximum, x, z, w, h, nullptr, nullptr);
+    return result;
+}
+
+auto end_city_pieces(std::uint64_t seed, std::int32_t chunk_x, std::int32_t chunk_z) -> std::vector<Piece>
+{
+    std::vector<Piece> pieces(END_CITY_PIECES_MAX);
+    const auto count = getEndCityPieces(pieces.data(), seed, chunk_x, chunk_z);
+    pieces.resize(static_cast<std::size_t>(std::max(count, 0)));
+    return pieces;
+}
+
+auto fortress_pieces(
+    std::int32_t n,
+    std::int32_t mc,
+    std::uint64_t seed,
+    std::int32_t chunk_x,
+    std::int32_t chunk_z
+) -> std::vector<Piece>
+{
+    std::vector<Piece> pieces(static_cast<std::size_t>(std::max(n, 0)));
+    const auto count = getFortressPieces(pieces.data(), n, mc, seed, chunk_x, chunk_z);
+    pieces.resize(static_cast<std::size_t>(std::max(count, 0)));
+    return pieces;
+}
+
+auto fixed_end_gateways(std::int32_t mc, std::uint64_t seed) -> std::array<Pos, 20>
+{
+    std::array<Pos, 20> positions{};
+    get_fixed_end_gateways_impl(mc, seed, positions);
+    return positions;
+}
+
+auto house_list(std::uint64_t seed, std::int32_t chunk_x, std::int32_t chunk_z) -> HouseListResult
+{
+    HouseListResult result{};
+    std::array<int, 9> tmp{};
+    result.rng = get_house_list_impl(tmp, seed, chunk_x, chunk_z);
+    std::transform(tmp.begin(), tmp.end(), result.houses.begin(), [](int value) {
+        return static_cast<std::int32_t>(value);
+    });
+    return result;
+}
+
+} // namespace cubiomes::cpp
 
 
 //==============================================================================
@@ -194,7 +456,7 @@ int getStructureConfig(int structureType, int mc, StructureConfig *sconf)
         *sconf = s_trial_chambers;
         return mc >= MC_1_21_1;
     default:
-        memset(sconf, 0, sizeof(StructureConfig));
+        *sconf = StructureConfig{};
         return 0;
     }
 }
@@ -202,14 +464,68 @@ int getStructureConfig(int structureType, int mc, StructureConfig *sconf)
 
 // like getFeaturePos(), but modifies the rng seed
 static inline
-void getRegPos(Pos *p, uint64_t *s, int rx, int rz, StructureConfig sc)
+auto get_reg_pos_impl(uint64_t seed, int rx, int rz, StructureConfig sc) -> std::pair<Pos, uint64_t>
 {
-    setSeed(s, rx*341873128712ULL + rz*132897987541ULL + *s + sc.salt);
-    p->x = ((uint64_t)rx * sc.regionSize + nextInt(s, sc.chunkRange)) << 4;
-    p->z = ((uint64_t)rz * sc.regionSize + nextInt(s, sc.chunkRange)) << 4;
+    auto s = seed;
+    setSeed(&s, rx*341873128712ULL + rz*132897987541ULL + s + sc.salt);
+    Pos p{};
+    p.x = ((uint64_t)rx * sc.regionSize + nextInt(&s, sc.chunkRange)) << 4;
+    p.z = ((uint64_t)rz * sc.regionSize + nextInt(&s, sc.chunkRange)) << 4;
+    return {p, s};
 }
 
-int getStructurePos(int structureType, int mc, uint64_t seed, int regX, int regZ, Pos *pos)
+auto list_mineshafts_impl(int mc, uint64_t seed, int cx0, int cz0, int cx1, int cz1) -> std::vector<Pos>
+{
+    std::vector<Pos> positions{};
+    const auto width = std::max(0, cx1 - cx0 + 1);
+    const auto height = std::max(0, cz1 - cz0 + 1);
+    positions.reserve(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+
+    uint64_t s{};
+    setSeed(&s, seed);
+    const auto a = nextLong(&s);
+    const auto b = nextLong(&s);
+
+    for (int i = cx0; i <= cx1; i++)
+    {
+        const uint64_t aix = static_cast<uint64_t>(i) * a ^ seed;
+        for (int j = cz0; j <= cz1; j++)
+        {
+            setSeed(&s, aix ^ static_cast<uint64_t>(j) * b);
+            auto add = false;
+            if (mc >= MC_1_13)
+            {
+                add = unlikely(nextDouble(&s) < 0.004);
+            }
+            else
+            {
+                skipNextN(&s, 1);
+                if unlikely(nextDouble(&s) < 0.004)
+                {
+                    auto d = i;
+                    if (-i > d) d = -i;
+                    if (+j > d) d = +j;
+                    if (-j > d) d = -j;
+                    add = (d >= 80 || nextInt(&s, 80) < d);
+                }
+            }
+            if (add) {
+                positions.push_back(Pos{.x = i * 16, .z = j * 16});
+            }
+        }
+    }
+    return positions;
+}
+
+namespace {
+
+struct StructurePosResult
+{
+    Pos pos{};
+    int valid{};
+};
+
+auto get_structure_pos_impl(int structureType, int mc, uint64_t seed, int regX, int regZ) -> StructurePosResult
 {
     StructureConfig sconf;
 #if STRUCT_CONFIG_OVERRIDE
@@ -218,9 +534,10 @@ int getStructurePos(int structureType, int mc, uint64_t seed, int regX, int regZ
     if (!getStructureConfig(structureType, mc, &sconf))
 #endif
     {
-        return 0;
+        return {};
     }
 
+    StructurePosResult result{};
     switch (structureType)
     {
     case Feature:
@@ -236,56 +553,75 @@ int getStructurePos(int structureType, int mc, uint64_t seed, int regX, int regZ
     case Ancient_City:
     case Trail_Ruins:
     case Trial_Chambers:
-        *pos = getFeaturePos(sconf, seed, regX, regZ);
-        return 1;
+        result.pos = getFeaturePos(sconf, seed, regX, regZ);
+        result.valid = 1;
+        return result;
 
     case Monument:
     case Mansion:
-        *pos = getLargeStructurePos(sconf, seed, regX, regZ);
-        return 1;
+        result.pos = getLargeStructurePos(sconf, seed, regX, regZ);
+        result.valid = 1;
+        return result;
 
     case End_City:
-        *pos = getLargeStructurePos(sconf, seed, regX, regZ);
-        return (pos->x*(int64_t)pos->x + pos->z*(int64_t)pos->z) >= 1008*1008LL;
+        result.pos = getLargeStructurePos(sconf, seed, regX, regZ);
+        result.valid = (result.pos.x*(int64_t)result.pos.x + result.pos.z*(int64_t)result.pos.z) >= 1008*1008LL;
+        return result;
 
     case Outpost:
-        *pos = getFeaturePos(sconf, seed, regX, regZ);
-        setAttemptSeed(&seed, (pos->x) >> 4, (pos->z) >> 4);
-        return nextInt(&seed, 5) == 0;
+        result.pos = getFeaturePos(sconf, seed, regX, regZ);
+        setAttemptSeed(&seed, (result.pos.x) >> 4, (result.pos.z) >> 4);
+        result.valid = nextInt(&seed, 5) == 0;
+        return result;
 
     case Treasure:
-        pos->x = regX * 16 + 9;
-        pos->z = regZ * 16 + 9;
+        result.pos.x = regX * 16 + 9;
+        result.pos.z = regZ * 16 + 9;
         seed = regX*341873128712ULL + regZ*132897987541ULL + seed + sconf.salt;
         setSeed(&seed, seed);
-        return nextFloat(&seed) < 0.01;
+        result.valid = nextFloat(&seed) < 0.01;
+        return result;
 
     case Mineshaft:
-        return getMineshafts(mc, seed, regX, regZ, regX, regZ, pos, 1);
+    {
+        const auto positions = list_mineshafts_impl(mc, seed, regX, regZ, regX, regZ);
+        if (!positions.empty())
+        {
+            result.pos = positions.front();
+            result.valid = 1;
+        }
+        return result;
+    }
 
     case Fortress:
         if (mc >= MC_1_18) {
-            *pos = getFeaturePos(sconf, seed, regX, regZ);
-            return 1; // fortresses gen where bastions don't (biome dependent)
+            result.pos = getFeaturePos(sconf, seed, regX, regZ);
+            result.valid = 1; // fortresses gen where bastions don't (biome dependent)
+            return result;
         } else if (mc >= MC_1_16_1) {
-            getRegPos(pos, &seed, regX, regZ, sconf);
-            return nextInt(&seed, 5) < 2;
+            auto [pos, next_seed] = get_reg_pos_impl(seed, regX, regZ, sconf);
+            result.pos = pos;
+            result.valid = nextInt(&next_seed, 5) < 2;
+            return result;
         } else {
             setAttemptSeed(&seed, regX * 16, regZ * 16);
-            int valid = nextInt(&seed, 3) == 0;
-            pos->x = (regX * 16 + nextInt(&seed, 8) + 4) * 16;
-            pos->z = (regZ * 16 + nextInt(&seed, 8) + 4) * 16;
-            return valid;
+            result.valid = nextInt(&seed, 3) == 0;
+            result.pos.x = (regX * 16 + nextInt(&seed, 8) + 4) * 16;
+            result.pos.z = (regZ * 16 + nextInt(&seed, 8) + 4) * 16;
+            return result;
         }
 
     case Bastion:
         if (mc >= MC_1_18) {
-            *pos = getFeaturePos(sconf, seed, regX, regZ);
-            seed = chunkGenerateRnd(seed, pos->x >> 4, pos->z >> 4);
-            return nextInt(&seed, 5) >= 2;
+            result.pos = getFeaturePos(sconf, seed, regX, regZ);
+            seed = chunkGenerateRnd(seed, result.pos.x >> 4, result.pos.z >> 4);
+            result.valid = nextInt(&seed, 5) >= 2;
+            return result;
         } else {
-            getRegPos(pos, &seed, regX, regZ, sconf);
-            return nextInt(&seed, 5) >= 2;
+            auto [pos, next_seed] = get_reg_pos_impl(seed, regX, regZ, sconf);
+            result.pos = pos;
+            result.valid = nextInt(&next_seed, 5) >= 2;
+            return result;
         }
 
     case End_Gateway:
@@ -293,169 +629,166 @@ int getStructurePos(int structureType, int mc, uint64_t seed, int regX, int regZ
     case Desert_Well:
     case Geode:
         // decorator features
-        pos->x = regX * 16;
-        pos->z = regZ * 16;
-        seed = getPopulationSeed(mc, seed, pos->x, pos->z);
+        result.pos.x = regX * 16;
+        result.pos.z = regZ * 16;
+        seed = getPopulationSeed(mc, seed, result.pos.x, result.pos.z);
         if (mc >= MC_1_18)
         {
             Xoroshiro xr;
             xSetSeed(&xr, seed + sconf.salt);
             if (xNextFloat(&xr) >= sconf.rarity)
-                return 0;
-            pos->x += xNextIntJ(&xr, 16);
-            pos->z += xNextIntJ(&xr, 16);
+                return {};
+            result.pos.x += xNextIntJ(&xr, 16);
+            result.pos.z += xNextIntJ(&xr, 16);
         }
         else
         {
             setSeed(&seed, seed + sconf.salt);
             if (sconf.rarity < 1.0) {
                 if (nextFloat(&seed) >= sconf.rarity)
-                    return 0;
+                    return {};
             } else {
                 if (nextInt(&seed, (int)sconf.rarity) != 0)
-                    return 0;
+                    return {};
             }
-            pos->x += nextInt(&seed, 16);
-            pos->z += nextInt(&seed, 16);
+            result.pos.x += nextInt(&seed, 16);
+            result.pos.z += nextInt(&seed, 16);
         }
-        return 1;
+        result.valid = 1;
+        return result;
 
     default:
         fprintf(stderr,
                 "ERR getStructurePos: unsupported structure type %d\n", structureType);
         exit(-1);
     }
-    return 0;
+    return {};
+}
+
+} // namespace
+
+int getStructurePos(int structureType, int mc, uint64_t seed, int regX, int regZ, Pos *pos)
+{
+    const auto result = get_structure_pos_impl(structureType, mc, seed, regX, regZ);
+    if (pos != nullptr) {
+        *pos = result.pos;
+    }
+    return result.valid;
 }
 
 
 int getMineshafts(int mc, uint64_t seed, int cx0, int cz0, int cx1, int cz1,
         Pos *out, int nout)
 {
-    uint64_t s;
-    setSeed(&s, seed);
-    uint64_t a = nextLong(&s);
-    uint64_t b = nextLong(&s);
-    int i, j;
-    int n = 0;
-
-    for (i = cx0; i <= cx1; i++)
+    const auto positions = list_mineshafts_impl(mc, seed, cx0, cz0, cx1, cz1);
+    if (out != nullptr && nout > 0)
     {
-        uint64_t aix = i * a ^ seed;
-
-        for (j = cz0; j <= cz1; j++)
-        {
-            setSeed(&s, aix ^ j * b);
-
-            if (mc >= MC_1_13)
-            {
-                if unlikely(nextDouble(&s) < 0.004)
-                {
-                    if (out && n < nout)
-                    {
-                        out[n].x = i * 16;
-                        out[n].z = j * 16;
-                    }
-                    n++;
-                }
-            }
-            else
-            {
-                skipNextN(&s, 1);
-                if unlikely(nextDouble(&s) < 0.004)
-                {
-                    int d = i;
-                    if (-i > d) d = -i;
-                    if (+j > d) d = +j;
-                    if (-j > d) d = -j;
-                    if (d >= 80 || nextInt(&s, 80) < d)
-                    {
-                        if (out && n < nout)
-                        {
-                            out[n].x = i * 16;
-                            out[n].z = j * 16;
-                        }
-                        n++;
-                    }
-                }
-            }
-        }
+        const auto to_copy = std::min(static_cast<std::size_t>(nout), positions.size());
+        std::copy_n(positions.begin(), static_cast<std::ptrdiff_t>(to_copy), out);
     }
-
-    return n;
+    return static_cast<int>(positions.size());
 }
 
-int getEndIslands(EndIsland islands[2], int mc, uint64_t seed, int chunkX, int chunkZ)
-{
-    StructureConfig sconf;
-    if (!getStructureConfig(End_Island, mc, &sconf))
-        return 0;
+namespace {
 
-    int x = chunkX * 16;
-    int z = chunkZ * 16;
+struct EndIslandsResult
+{
+    std::array<EndIsland, 2> islands{};
+    int count{};
+};
+
+auto get_end_islands_impl(int mc, uint64_t seed, int chunk_x, int chunk_z) -> EndIslandsResult
+{
+    StructureConfig sconf{};
+    if (!getStructureConfig(End_Island, mc, &sconf))
+        return {};
+
+    const auto x = chunk_x * 16;
+    const auto z = chunk_z * 16;
     uint64_t rng = getPopulationSeed(mc, seed, x, z);
-    Xoroshiro xr;
-    float r;
+    Xoroshiro xr{};
+    float r = 0.0f;
+    EndIslandsResult result{};
 
     if (mc <= MC_1_16)
     {
         setSeed(&rng, rng + sconf.salt);
-        if (nextInt(&rng, (int)sconf.rarity) != 0)
-            return 0;
-        islands[0].x = nextInt(&rng, 16) + x;
-        islands[0].y = nextInt(&rng, 16) + 55;
-        islands[0].z = nextInt(&rng, 16) + z;
+        if (nextInt(&rng, static_cast<int>(sconf.rarity)) != 0)
+            return {};
+        result.islands[0].x = nextInt(&rng, 16) + x;
+        result.islands[0].y = nextInt(&rng, 16) + 55;
+        result.islands[0].z = nextInt(&rng, 16) + z;
         if (nextInt(&rng, 4) != 0)
         {
-            islands[0].r = nextInt(&rng, 3) + 4;
-            return 1;
+            result.islands[0].r = nextInt(&rng, 3) + 4;
+            result.count = 1;
+            return result;
         }
-        islands[1].x = nextInt(&rng, 16) + x;
-        islands[1].y = nextInt(&rng, 16) + 55;
-        islands[1].z = nextInt(&rng, 16) + z;
-        islands[0].r = nextInt(&rng, 3) + 4;
-        for (r = islands[0].r; r > 0.5; r -= nextInt(&rng, 2) + 0.5);
-        islands[1].r = nextInt(&rng, 3) + 4;
-        return 2;
+        result.islands[1].x = nextInt(&rng, 16) + x;
+        result.islands[1].y = nextInt(&rng, 16) + 55;
+        result.islands[1].z = nextInt(&rng, 16) + z;
+        result.islands[0].r = nextInt(&rng, 3) + 4;
+        for (r = result.islands[0].r; r > 0.5; r -= nextInt(&rng, 2) + 0.5f) {}
+        result.islands[1].r = nextInt(&rng, 3) + 4;
+        result.count = 2;
+        return result;
     }
-    else if (mc <= MC_1_17)
+    if (mc <= MC_1_17)
     {
         setSeed(&rng, rng + sconf.salt);
         if (nextFloat(&rng) >= sconf.rarity)
-            return 0;
-        int second = nextInt(&rng, 4) == 0;
-        islands[0].x = nextInt(&rng, 16) + x;
-        islands[0].z = nextInt(&rng, 16) + z;
-        islands[0].y = nextInt(&rng, 16) + 55;
-        islands[0].r = nextInt(&rng, 3) + 4;
-        for (r = islands[0].r; r > 0.5; r -= nextInt(&rng, 2) + 0.5);
+            return {};
+        const auto second = nextInt(&rng, 4) == 0;
+        result.islands[0].x = nextInt(&rng, 16) + x;
+        result.islands[0].z = nextInt(&rng, 16) + z;
+        result.islands[0].y = nextInt(&rng, 16) + 55;
+        result.islands[0].r = nextInt(&rng, 3) + 4;
+        for (r = result.islands[0].r; r > 0.5; r -= nextInt(&rng, 2) + 0.5f) {}
         if (!second)
-            return 1;
-        islands[1].x = nextInt(&rng, 16) + x;
-        islands[1].z = nextInt(&rng, 16) + z;
-        islands[1].y = nextInt(&rng, 16) + 55;
-        islands[1].r = nextInt(&rng, 3) + 4;
-        return 2;
+        {
+            result.count = 1;
+            return result;
+        }
+        result.islands[1].x = nextInt(&rng, 16) + x;
+        result.islands[1].z = nextInt(&rng, 16) + z;
+        result.islands[1].y = nextInt(&rng, 16) + 55;
+        result.islands[1].r = nextInt(&rng, 3) + 4;
+        result.count = 2;
+        return result;
     }
-    else
+
+    xSetSeed(&xr, rng + sconf.salt);
+    if (xNextFloat(&xr) >= sconf.rarity)
+        return {};
+    const auto second = (xNextIntJ(&xr, 4) == 3);
+    result.islands[0].x = xNextIntJ(&xr, 16) + x;
+    result.islands[0].z = xNextIntJ(&xr, 16) + z;
+    result.islands[0].y = xNextIntJ(&xr, 16) + 55;
+    result.islands[0].r = xNextIntJ(&xr, 3) + 4;
+    if (!second)
     {
-        xSetSeed(&xr, rng + sconf.salt);
-        if (xNextFloat(&xr) >= sconf.rarity)
-            return 0;
-        int second = (xNextIntJ(&xr, 4) == 3);
-        islands[0].x = xNextIntJ(&xr, 16) + x;
-        islands[0].z = xNextIntJ(&xr, 16) + z;
-        islands[0].y = xNextIntJ(&xr, 16) + 55;
-        islands[0].r = xNextIntJ(&xr, 3) + 4;
-        if (!second)
-            return 1;
-        for (r = islands[0].r; r > 0.5; r -= xNextIntJ(&xr, 2) + 0.5);
-        islands[1].x = xNextIntJ(&xr, 16) + x;
-        islands[1].z = xNextIntJ(&xr, 16) + z;
-        islands[1].y = xNextIntJ(&xr, 16) + 55;
-        islands[1].r = xNextIntJ(&xr, 3) + 4;
-        return 2;
+        result.count = 1;
+        return result;
     }
+    for (r = result.islands[0].r; r > 0.5; r -= xNextIntJ(&xr, 2) + 0.5f) {}
+    result.islands[1].x = xNextIntJ(&xr, 16) + x;
+    result.islands[1].z = xNextIntJ(&xr, 16) + z;
+    result.islands[1].y = xNextIntJ(&xr, 16) + 55;
+    result.islands[1].r = xNextIntJ(&xr, 3) + 4;
+    result.count = 2;
+    return result;
+}
+
+} // namespace
+
+int getEndIslands(EndIsland islands[2], int mc, uint64_t seed, int chunkX, int chunkZ)
+{
+    const auto result = get_end_islands_impl(mc, seed, chunkX, chunkZ);
+    for (int i = 0; i < result.count; ++i)
+    {
+        islands[i] = result.islands[static_cast<std::size_t>(i)];
+    }
+    return result.count;
 }
 
 static void applyEndIslandHeight(float *y, const EndIsland *island,
@@ -498,23 +831,21 @@ int mapEndIslandHeight(float *y, const EndNoise *en, uint64_t seed,
     int ch = floordiv(z + h + rmax, 16 / scale) - cz + 1;
     int ci, cj;
 
-    int *ids = (int*) malloc(sizeof(int) * cw * ch);
-    mapEndBiome(en, ids, cx, cz, cw, ch);
+    std::vector<int> ids(static_cast<std::size_t>(cw) * static_cast<std::size_t>(ch), 0);
+    mapEndBiome(en, ids.data(), cx, cz, cw, ch);
 
     for (cj = 0; cj < ch; cj++)
     {
         for (ci = 0; ci < cw; ci++)
         {
-            if (ids[cj*cw + ci] != small_end_islands)
+            if (ids[static_cast<std::size_t>(cj*cw + ci)] != small_end_islands)
                 continue;
-            EndIsland islands[2];
-            int n = getEndIslands(islands, en->mc, seed, cx+ci, cz+cj);
-            while (n --> 0)
-                applyEndIslandHeight(y, islands+n, x, z, w, h, scale);
+            const auto islands = get_end_islands_impl(en->mc, seed, cx+ci, cz+cj);
+            for (int n = islands.count - 1; n >= 0; --n)
+                applyEndIslandHeight(y, &islands.islands[static_cast<std::size_t>(n)], x, z, w, h, scale);
         }
     }
 
-    free(ids);
     return 0;
 }
 
@@ -534,16 +865,16 @@ int isEndChunkEmpty(const EndNoise *en, const SurfaceNoise *sn, uint64_t seed,
     {
         for (i = -1; i <= +1; i++)
         {
-            EndIsland is[2];
-            int n = getEndIslands(is, en->mc, seed, chunkX+i, chunkZ+j);
-            while (n --> 0)
+            const auto islands = get_end_islands_impl(en->mc, seed, chunkX+i, chunkZ+j);
+            for (int n = islands.count - 1; n >= 0; --n)
             {
-                if (is[n].x + is[n].r <= chunkX*16) continue;
-                if (is[n].z + is[n].r <= chunkZ*16) continue;
-                if (is[n].x - is[n].r > chunkX*16 + 15) continue;
-                if (is[n].z - is[n].r > chunkZ*16 + 15) continue;
+                const auto &island = islands.islands[static_cast<std::size_t>(n)];
+                if (island.x + island.r <= chunkX*16) continue;
+                if (island.z + island.r <= chunkZ*16) continue;
+                if (island.x - island.r > chunkX*16 + 15) continue;
+                if (island.z - island.r > chunkZ*16 + 15) continue;
                 int id;
-                mapEndBiome(en, &id, is[n].x >> 4, is[n].z >> 4, 1, 1);
+                mapEndBiome(en, &id, island.x >> 4, island.z >> 4, 1, 1);
                 if (id == small_end_islands)
                     return 0;
             }
@@ -602,9 +933,10 @@ int isEndChunkEmpty(const EndNoise *en, const SurfaceNoise *sn, uint64_t seed,
         depth[2][j] = getEndHeightNoise(en, x+2, z+j, 0) - 8.0f;
 
     // see if none of the noise values can generate blocks
-    for (i = 0; i < 3; i++)
+    auto needs_full_check = false;
+    for (i = 0; i < 3 && !needs_full_check; i++)
     {
-        for (j = 0; j < 3; j++)
+        for (j = 0; j < 3 && !needs_full_check; j++)
         {
             for (k = 2; k < 18; k++)
             {
@@ -615,14 +947,17 @@ int isEndChunkEmpty(const EndNoise *en, const SurfaceNoise *sn, uint64_t seed,
                 noise += sampleSurfaceNoiseBetween(sn, x+i, k, z+j, pivot-eps, pivot+eps);
                 noise = cubiomes_lerp(u, -3000, noise);
                 noise = cubiomes_lerp(l, -30, noise);
-                if (noise > 0)
-                    goto L_check_full;
+                if (noise > 0) {
+                    needs_full_check = true;
+                    break;
+                }
             }
         }
     }
-    return 1;
+    if (!needs_full_check) {
+        return 1;
+    }
 
-L_check_full:
     mapEndSurfaceHeight(y, en, sn, chunkX*16, chunkZ*16, 16, 16, 1, 0);
     for (k = 0; k < 256; k++)
         if (y[k] != 0) return 0;
@@ -660,7 +995,7 @@ Pos locateBiome(
             {
                 // emulate order-dependent biome generation MC-241546
                 //int id = getBiomeAt(g, 4, x+i, y, z+j);
-                int id = sampleBiomeNoise(&g->bn, NULL, x+i, y, z+j, &dat, 0);
+                int id = sampleBiomeNoise(&g->bn, nullptr, x+i, y, z+j, &dat, 0);
                 if (!id_matches(id, validB, validM))
                     continue;
 
@@ -683,14 +1018,19 @@ Pos locateBiome(
         int height = z2 - z1 + 1;
 
         Range r = {4, x1, z1, width, height, y, 1};
-        int *ids = allocCache(g, r);
-        genBiomes(g, ids, r);
+        std::vector<int> ids(static_cast<std::size_t>(getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz)), 0);
+        if (ids.empty() || genBiomes(g, ids.data(), r) != 0) {
+            if (passes != nullptr) {
+                *passes = found;
+            }
+            return out;
+        }
 
         if (g->mc >= MC_1_13)
         {
             for (i = 0, j = 2; i < width*height; i++)
             {
-                if (!id_matches(ids[i], validB, validM))
+                if (!id_matches(ids[static_cast<std::size_t>(i)], validB, validM))
                     continue;
                 if (found == 0 || nextInt(rng, j++) == 0)
                 {
@@ -705,7 +1045,7 @@ Pos locateBiome(
         {
             for (i = 0; i < width*height; i++)
             {
-                if (!id_matches(ids[i], validB, validM))
+                if (!id_matches(ids[static_cast<std::size_t>(i)], validB, validM))
                     continue;
                 if (found == 0 || nextInt(rng, found + 1) == 0)
                 {
@@ -715,12 +1055,10 @@ Pos locateBiome(
                 }
             }
         }
-
-        free(ids);
     }
 
 
-    if (passes != NULL)
+    if (passes != nullptr)
     {
         *passes = found;
     }
@@ -735,8 +1073,7 @@ int areBiomesViable(
 {
     int x1 = (x - rad) >> 2, x2 = (x + rad) >> 2, sx = x2 - x1 + 1;
     int z1 = (z - rad) >> 2, z2 = (z + rad) >> 2, sz = z2 - z1 + 1;
-    int i, j, id, viable = 1;
-    int *ids = NULL;
+    int i, j, id;
 
     // In 1.18+ the area is also checked in y, forming a cube volume.
     // However, this function is only used for monuments, which need ocean or
@@ -749,9 +1086,10 @@ int areBiomesViable(
     {
         id = getBiomeAt(g, 4, corners[i].x, y, corners[i].z);
         if (id < 0 || !id_matches(id, validB, validM))
-            goto L_no;
+            return 0;
     }
-    if (approx >= 1) goto L_yes;
+    if (approx >= 1)
+        return 1;
 
     if (g->mc >= MC_1_18)
     {
@@ -761,32 +1099,28 @@ int areBiomesViable(
             for (j = 0; j < sz; j++)
             {
                 if (g->mc >= MC_1_18)
-                    id = sampleBiomeNoise(&g->bn, NULL, x1+i, y, z1+j, &dat, 0);
+                    id = sampleBiomeNoise(&g->bn, nullptr, x1+i, y, z1+j, &dat, 0);
                 else
                     id = getBiomeAt(g, 4, x1+i, y, z1+j);
                 if (id < 0 || !id_matches(id, validB, validM))
-                    goto L_no;
+                    return 0;
             }
         }
     }
     else
     {
         Range r = {4, x1, z1, sx, sz, y, 1};
-        ids = allocCache(g, r);
-        if (genBiomes(g, ids, r))
-            goto L_no;
+        std::vector<int> ids(static_cast<std::size_t>(getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz)), 0);
+        if (ids.empty() || genBiomes(g, ids.data(), r))
+            return 0;
         for (i = 0; i < sx*sz; i++)
         {
-            if (id < 0 || !id_matches(ids[i], validB, validM))
-                goto L_no;
+            if (ids[static_cast<std::size_t>(i)] < 0 || !id_matches(ids[static_cast<std::size_t>(i)], validB, validM))
+                return 0;
         }
     }
 
-    if (0) L_yes: viable = 1;
-    if (0) L_no:  viable = 0;
-    if (ids)
-        free(ids);
-    return viable;
+    return 1;
 }
 
 
@@ -884,7 +1218,7 @@ int nextStronghold(StrongholdIter *sh, const Generator *g)
             uint64_t lbr = sh->rnds;
             setSeed(&lbr, nextLong(&sh->rnds));
             sh->pos = locateBiome(g, sh->nextapprox.x, 0, sh->nextapprox.z, 112,
-                validB, validM, &lbr, NULL);
+                validB, validM, &lbr, nullptr);
         }
         else
         {
@@ -895,7 +1229,7 @@ int nextStronghold(StrongholdIter *sh, const Generator *g)
     else if (sh->mc >= MC_B1_8)
     {
         sh->pos = locateBiome(g, sh->nextapprox.x, 0, sh->nextapprox.z, 112,
-            validB, validM, &sh->rnds, NULL);
+            validB, validM, &sh->rnds, nullptr);
     }
     else
     {
@@ -941,26 +1275,26 @@ uint64_t calcFitness(const Generator *g, int x, int z)
 {
     int64_t np[6];
     uint32_t flags = SAMPLE_NO_DEPTH | SAMPLE_NO_BIOME;
-    sampleBiomeNoise(&g->bn, np, x>>2, 0, z>>2, NULL, flags);
-    const int64_t spawn_np[][2] = {
+    sampleBiomeNoise(&g->bn, np, x>>2, 0, z>>2, nullptr, flags);
+    static constexpr std::array<std::array<int64_t, 2>, 7> spawn_np{{
         {-10000,10000},{-10000,10000},{-1100,10000},{-10000,10000},{0,0},
         {-10000,-1600},{1600,10000} // [6]: weirdness for the second noise point
-    };
+    }};
     uint64_t ds = 0, ds1 = 0, ds2 = 0;
     uint64_t a, b, q, i;
     for (i = 0; i < 5; i++)
     {
-        a = +np[i] - (uint64_t)spawn_np[i][1];
-        b = -np[i] + (uint64_t)spawn_np[i][0];
+        a = +np[i] - static_cast<uint64_t>(spawn_np[static_cast<std::size_t>(i)][1]);
+        b = -np[i] + static_cast<uint64_t>(spawn_np[static_cast<std::size_t>(i)][0]);
         q = (int64_t)a > 0 ? a : (int64_t)b > 0 ? b : 0;
         ds += q * q;
     }
-    a = +np[5] - (uint64_t)spawn_np[5][1];
-    b = -np[5] + (uint64_t)spawn_np[5][0];
+    a = +np[5] - static_cast<uint64_t>(spawn_np[5][1]);
+    b = -np[5] + static_cast<uint64_t>(spawn_np[5][0]);
     q = (int64_t)a > 0 ? a : (int64_t)b > 0 ? b : 0;
     ds1 = ds + q*q;
-    a = +np[5] - (uint64_t)spawn_np[6][1];
-    b = -np[5] + (uint64_t)spawn_np[6][0];
+    a = +np[5] - static_cast<uint64_t>(spawn_np[6][1]);
+    b = -np[5] + static_cast<uint64_t>(spawn_np[6][0]);
     q = (int64_t)a > 0 ? a : (int64_t)b > 0 ? b : 0;
     ds2 = ds + q*q;
     ds = ds1 <= ds2 ? ds1 : ds2;
@@ -980,10 +1314,13 @@ uint64_t calcFitness(const Generator *g, int x, int z)
 }
 
 static
-void findFittest(const Generator *g, Pos *pos, uint64_t *fitness, double maxrad, double step)
+auto find_fittest_impl(const Generator *g, Pos start, uint64_t initial_fitness, double maxrad, double step)
+    -> std::pair<Pos, uint64_t>
 {
+    auto pos = start;
+    auto fitness = initial_fitness;
     double rad, ang;
-    Pos p = *pos;
+    const auto p = start;
     for (rad = step; rad <= maxrad; rad += step)
     {
         for (ang = 0; ang <= PI*2; ang += step/rad)
@@ -992,14 +1329,14 @@ void findFittest(const Generator *g, Pos *pos, uint64_t *fitness, double maxrad,
             int z = p.z + (int)(cos(ang) * rad);
             uint64_t fit = calcFitness(g, x, z);
             // Then update pos and fitness if combined total is lower/better
-            if (fit < *fitness)
+            if (fit < fitness)
             {
-                pos->x = x;
-                pos->z = z;
-                *fitness = fit;
+                pos = Pos{.x = x, .z = z};
+                fitness = fit;
             }
         }
     }
+    return {pos, fitness};
 }
 
 static
@@ -1007,8 +1344,8 @@ Pos findFittestPos(const Generator *g)
 {
     Pos spawn = {0, 0};
     uint64_t fitness = calcFitness(g, 0, 0);
-    findFittest(g, &spawn, &fitness, 2048.0, 512.0);
-    findFittest(g, &spawn, &fitness, 512.0, 32.0);
+    std::tie(spawn, fitness) = find_fittest_impl(g, spawn, fitness, 2048.0, 512.0);
+    std::tie(spawn, fitness) = find_fittest_impl(g, spawn, fitness, 512.0, 32.0);
     // center of chunk
     spawn.x = (spawn.x & ~15) + 8;
     spawn.z = (spawn.z & ~15) + 8;
@@ -1433,19 +1770,13 @@ static const uint64_t g_monument_biomes1 =
 
 int isViableStructurePos(int structureType, Generator *g, int x, int z, uint32_t flags)
 {
-    int approx = 0; // enables approximation levels
-    int viable = 0;
-
-    int64_t chunkX = x >> 4;
-    int64_t chunkZ = z >> 4;
+    constexpr auto approx = 0; // enables approximation levels
+    const int64_t chunkX = x >> 4;
+    const int64_t chunkZ = z >> 4;
 
     // Structures are positioned at the chunk origin, but the biome check is
     // performed near the middle of the chunk [(9,9) in 1.13, TODO: check 1.7]
     // In 1.16 the biome check is always performed at (2,2) with layer scale=4.
-    int sampleX, sampleZ, sampleY;
-    int id;
-
-
     if (g->dim == DIM_NETHER)
     {
         if (structureType == Fortress && g->mc <= MC_1_17)
@@ -1456,7 +1787,7 @@ int isViableStructurePos(int structureType, Generator *g, int x, int z, uint32_t
             return 1;
         if (structureType == Fortress)
         {   // in 1.18+ fortresses generate everywhere, where bastions don't
-            StructureConfig sc;
+            StructureConfig sc{};
             if (!getStructureConfig(Fortress, g->mc, &sc))
                 return 0;
             Pos rp = {
@@ -1467,10 +1798,13 @@ int isViableStructurePos(int structureType, Generator *g, int x, int z, uint32_t
                 return 1;
             return !isViableStructurePos(Bastion, g, x, z, flags);
         }
-        sampleY = 0;
+
+        auto sampleY = 0;
+        auto sampleX = 0;
+        auto sampleZ = 0;
         if (g->mc >= MC_1_18 && structureType == Bastion)
         {
-            StructureVariant sv;
+            StructureVariant sv{};
             getVariant(&sv, Bastion, g->mc, g->seed, x, z, -1);
             sampleX = (chunkX*32 + 2*sv.x + sv.sx-1) / 2 >> 2;
             sampleZ = (chunkZ*32 + 2*sv.z + sv.sz-1) / 2 >> 2;
@@ -1482,10 +1816,11 @@ int isViableStructurePos(int structureType, Generator *g, int x, int z, uint32_t
             sampleX = (chunkX * 4) + 2;
             sampleZ = (chunkZ * 4) + 2;
         }
-        id = getBiomeAt(g, 4, sampleX, sampleY, sampleZ);
+        const auto id = getBiomeAt(g, 4, sampleX, sampleY, sampleZ);
         return isViableFeatureBiome(g->mc, structureType, id);
     }
-    else if (g->dim == DIM_END)
+
+    if (g->dim == DIM_END)
     {
         switch (structureType)
         {
@@ -1501,44 +1836,60 @@ int isViableStructurePos(int structureType, Generator *g, int x, int z, uint32_t
         // End biomes vary only on a per-chunk scale (1:16)
         // voronoi pre-1.15 shouldn't matter for End Cities as the check will
         // be near the chunk center
-        id = getBiomeAt(g, 16, chunkX, 0, chunkZ);
+        const auto id = getBiomeAt(g, 16, chunkX, 0, chunkZ);
         return isViableFeatureBiome(g->mc, structureType, id) ? id : 0;
     }
 
-    // Overworld
-
-    Layer lbiome, lshore, *entry = 0;
-    int data[2] = { structureType, g->mc };
-
-    if (g->mc <= MC_1_17)
-    {
-        lbiome = g->layered.ls.layers[L_BIOME_256];
-        lshore = g->layered.ls.layers[L_SHORE_16];
-        entry = g->layered.entry;
-
-        g->layered.ls.layers[L_BIOME_256].data = (void*) data;
-        g->layered.ls.layers[L_BIOME_256].getMap = mapViableBiome;
-        g->layered.ls.layers[L_SHORE_16].data = (void*) data;
-        g->layered.ls.layers[L_SHORE_16].getMap = mapViableShore;
+    // Overworld fast paths that do not require biome-layer overrides.
+    if (structureType == Mineshaft) {
+        return 1;
+    }
+    if (structureType == Ruined_Portal || structureType == Ruined_Portal_N) {
+        return g->mc > MC_1_15 ? 1 : 0;
+    }
+    if (structureType == Geode) {
+        return g->mc > MC_1_16 ? 1 : 0;
     }
 
-    switch (structureType)
+    struct OverworldLayerOverride
     {
-    case Trail_Ruins:
-        if (g->mc <= MC_1_19) goto L_not_viable;
-        goto L_feature;
-    case Ocean_Ruin:
-    case Shipwreck:
-    case Treasure:
-        if (g->mc <= MC_1_12) goto L_not_viable;
-        goto L_feature;
-    case Igloo:
-        if (g->mc <= MC_1_8) goto L_not_viable;
-        goto L_feature;
-    case Desert_Pyramid:
-    case Jungle_Pyramid:
-    case Swamp_Hut:
-L_feature:
+        Generator *g;
+        Layer lbiome{};
+        Layer lshore{};
+        Layer *entry{nullptr};
+        bool active{false};
+
+        OverworldLayerOverride(Generator *gen, int *data) : g(gen)
+        {
+            if (g->mc > MC_1_17) {
+                return;
+            }
+            active = true;
+            lbiome = g->layered.ls.layers[L_BIOME_256];
+            lshore = g->layered.ls.layers[L_SHORE_16];
+            entry = g->layered.entry;
+            g->layered.ls.layers[L_BIOME_256].data = data;
+            g->layered.ls.layers[L_BIOME_256].getMap = mapViableBiome;
+            g->layered.ls.layers[L_SHORE_16].data = data;
+            g->layered.ls.layers[L_SHORE_16].getMap = mapViableShore;
+        }
+
+        ~OverworldLayerOverride()
+        {
+            if (!active) {
+                return;
+            }
+            g->layered.ls.layers[L_BIOME_256] = lbiome;
+            g->layered.ls.layers[L_SHORE_16] = lshore;
+            g->layered.entry = entry;
+        }
+    };
+    std::array<int, 2> layer_filter_data{structureType, g->mc};
+    OverworldLayerOverride scoped_override{g, layer_filter_data.data()};
+
+    auto check_feature_like = [&]() -> int {
+        auto sampleX = 0;
+        auto sampleZ = 0;
         if (g->mc <= MC_1_15)
         {
             g->layered.entry = &g->layered.ls.layers[L_VORONOI_1];
@@ -1552,12 +1903,29 @@ L_feature:
             sampleX = chunkX * 4 + 2;
             sampleZ = chunkZ * 4 + 2;
         }
-        id = getBiomeAt(g, 0, sampleX, 319>>2, sampleZ);
-        if (id < 0 || !isViableFeatureBiome(g->mc, structureType, id))
-            goto L_not_viable;
-        goto L_viable;
+        const auto id = getBiomeAt(g, 0, sampleX, 319>>2, sampleZ);
+        return (id >= 0 && isViableFeatureBiome(g->mc, structureType, id)) ? 1 : 0;
+    };
+
+    switch (structureType)
+    {
+    case Trail_Ruins:
+        return g->mc > MC_1_19 ? check_feature_like() : 0;
+    case Ocean_Ruin:
+    case Shipwreck:
+    case Treasure:
+        return g->mc > MC_1_12 ? check_feature_like() : 0;
+    case Igloo:
+        return g->mc > MC_1_8 ? check_feature_like() : 0;
+    case Desert_Pyramid:
+    case Jungle_Pyramid:
+    case Swamp_Hut:
+        return check_feature_like();
 
     case Desert_Well:
+    {
+        auto sampleX = 0;
+        auto sampleZ = 0;
         if (g->mc <= MC_1_15)
         {
             g->layered.entry = &g->layered.ls.layers[L_VORONOI_1];
@@ -1571,14 +1939,16 @@ L_feature:
             sampleX = x >> 2;
             sampleZ = z >> 2;
         }
-        id = getBiomeAt(g, 0, sampleX, 319>>2, sampleZ);
-        if (id < 0 || !isViableFeatureBiome(g->mc, structureType, id))
-            goto L_not_viable;
-        goto L_viable;
+        const auto id = getBiomeAt(g, 0, sampleX, 319>>2, sampleZ);
+        return (id >= 0 && isViableFeatureBiome(g->mc, structureType, id)) ? 1 : 0;
+    }
 
     case Village:
+    {
         if (g->mc <= MC_1_17)
         {
+            auto sampleX = 0;
+            auto sampleZ = 0;
             if (g->mc == MC_1_15)
             {   // exclusively in MC_1_15, villages used the same biome check
                 // as other structures
@@ -1592,11 +1962,11 @@ L_feature:
                 sampleX = chunkX * 4 + 2;
                 sampleZ = chunkZ * 4 + 2;
             }
-            id = getBiomeAt(g, 0, sampleX, 0, sampleZ);
+            auto id = getBiomeAt(g, 0, sampleX, 0, sampleZ);
             if (id < 0 || !isViableFeatureBiome(g->mc, structureType, id))
-                goto L_not_viable;
-            if (flags && (uint32_t) id != flags)
-                goto L_not_viable;
+                return 0;
+            if (flags && static_cast<uint32_t>(id) != flags)
+                return 0;
             if (g->mc <= MC_1_9)
             {   // before MC_1_10 villages did not spread into invalid biomes,
                 // which could cause them to fail to generate on the first
@@ -1605,75 +1975,77 @@ L_feature:
                 sampleZ = chunkZ * 16 + 2;
                 id = getBiomeAt(g, 1, sampleX, 0, sampleZ);
                 if (id < 0 || !isViableFeatureBiome(g->mc, structureType, id))
-                    goto L_not_viable;
+                    return 0;
             }
-            viable = id; // biome for viablility, useful for further analysis
-            goto L_viable;
+            return id; // biome for viability, useful for further analysis
         }
-        else
-        {   // In 1.18 village types are checked separtely...
-            const int vv[] = { plains, desert, savanna, taiga, snowy_tundra };
-            size_t i;
-            for (i = 0; i < sizeof(vv)/sizeof(int); i++) {
-                if (flags && flags != (uint32_t) vv[i])
-                    continue;
-                StructureVariant sv;
-                getVariant(&sv, Village, g->mc, g->seed, x, z, vv[i]);
-                sampleX = (chunkX*32 + 2*sv.x + sv.sx-1) / 2 >> 2;
-                sampleZ = (chunkZ*32 + 2*sv.z + sv.sz-1) / 2 >> 2;
-                sampleY = 319 >> 2;
-                id = getBiomeAt(g, 0, sampleX, sampleY, sampleZ);
-                if (id == vv[i] || (id == meadow && vv[i] == plains)) {
-                    viable = vv[i];
-                    goto L_viable;
-                }
-            }
-            goto L_not_viable;
+
+        constexpr std::array<int, 5> village_biomes{plains, desert, savanna, taiga, snowy_tundra};
+        for (const auto biome : village_biomes)
+        {
+            if (flags && flags != static_cast<uint32_t>(biome))
+                continue;
+            StructureVariant sv{};
+            getVariant(&sv, Village, g->mc, g->seed, x, z, biome);
+            const auto sampleX = (chunkX*32 + 2*sv.x + sv.sx-1) / 2 >> 2;
+            const auto sampleZ = (chunkZ*32 + 2*sv.z + sv.sz-1) / 2 >> 2;
+            const auto id = getBiomeAt(g, 0, sampleX, 319 >> 2, sampleZ);
+            if (id == biome || (id == meadow && biome == plains))
+                return biome;
         }
+        return 0;
+    }
 
     case Outpost:
     {
         if (g->mc <= MC_1_13)
-            goto L_not_viable;
+            return 0;
+
         uint64_t rng = g->seed;
         setAttemptSeed(&rng, chunkX, chunkZ);
         if (nextInt(&rng, 5) != 0)
-            goto L_not_viable;
+            return 0;
+
         // look for villages within 10 chunks
-        StructureConfig vilconf;
+        StructureConfig vilconf{};
         if (!getStructureConfig(Village, g->mc, &vilconf))
-            goto L_not_viable;
-        int cx0 = (chunkX-10), cx1 = (chunkX+10);
-        int cz0 = (chunkZ-10), cz1 = (chunkZ+10);
-        int rx0 = floordiv(cx0, vilconf.regionSize);
-        int rx1 = floordiv(cx1, vilconf.regionSize);
-        int rz0 = floordiv(cz0, vilconf.regionSize);
-        int rz1 = floordiv(cz1, vilconf.regionSize);
-        int rx, rz;
-        for (rz = rz0; rz <= rz1; rz++)
+            return 0;
+        const auto cx0 = (chunkX-10);
+        const auto cx1 = (chunkX+10);
+        const auto cz0 = (chunkZ-10);
+        const auto cz1 = (chunkZ+10);
+        const auto rx0 = floordiv(cx0, vilconf.regionSize);
+        const auto rx1 = floordiv(cx1, vilconf.regionSize);
+        const auto rz0 = floordiv(cz0, vilconf.regionSize);
+        const auto rz1 = floordiv(cz1, vilconf.regionSize);
+        for (auto rz = rz0; rz <= rz1; rz++)
         {
-            for (rx = rx0; rx <= rx1; rx++)
+            for (auto rx = rx0; rx <= rx1; rx++)
             {
-                Pos p = getFeaturePos(vilconf, g->seed, rx, rz);
-                int cx = p.x >> 4, cz = p.z >> 4;
+                const auto p = getFeaturePos(vilconf, g->seed, rx, rz);
+                const auto cx = p.x >> 4;
+                const auto cz = p.z >> 4;
                 if (cx >= cx0 && cx <= cx1 && cz >= cz0 && cz <= cz1)
                 {
                     if (g->mc >= MC_1_16_1)
-                        goto L_not_viable;
+                        return 0;
                     if (isViableStructurePos(Village, g, p.x, p.z, 0))
-                        goto L_not_viable;
+                        return 0;
                 }
             }
         }
+
+        auto sampleX = 0;
+        auto sampleZ = 0;
         if (g->mc >= MC_1_18)
         {
             rng = chunkGenerateRnd(g->seed, chunkX, chunkZ);
             switch (nextInt(&rng, 4)) {
-                case 0: sampleX = +15; sampleZ = +15; break;
-                case 1: sampleX = -15; sampleZ = +15; break;
-                case 2: sampleX = -15; sampleZ = -15; break;
-                case 3: sampleX = +15; sampleZ = -15; break;
-                default: return 0; // unreachable
+            case 0: sampleX = +15; sampleZ = +15; break;
+            case 1: sampleX = -15; sampleZ = +15; break;
+            case 2: sampleX = -15; sampleZ = -15; break;
+            case 3: sampleX = +15; sampleZ = -15; break;
+            default: std::unreachable();
             }
             sampleX = (chunkX * 32 + sampleX) / 2 >> 2;
             sampleZ = (chunkZ * 32 + sampleZ) / 2 >> 2;
@@ -1690,123 +2062,96 @@ L_feature:
             sampleX = chunkX * 16 + 9;
             sampleZ = chunkZ * 16 + 9;
         }
-        id = getBiomeAt(g, 0, sampleX, 319>>2, sampleZ);
-        if (id < 0 || !isViableFeatureBiome(g->mc, structureType, id))
-            goto L_not_viable;
-        goto L_viable;
+
+        const auto id = getBiomeAt(g, 0, sampleX, 319>>2, sampleZ);
+        return (id >= 0 && isViableFeatureBiome(g->mc, structureType, id)) ? 1 : 0;
     }
 
     case Monument:
+    {
         if (g->mc <= MC_1_7)
-            goto L_not_viable;
-        else if (g->mc == MC_1_8)
+            return 0;
+        if (g->mc == MC_1_8)
         {   // In 1.8 monuments require only a single deep ocean block.
-            id = getBiomeAt(g, 1, chunkX * 16 + 8, 0, chunkZ * 16 + 8);
+            const auto id = getBiomeAt(g, 1, chunkX * 16 + 8, 0, chunkZ * 16 + 8);
             if (id < 0 || !isDeepOcean(id))
-                goto L_not_viable;
+                return 0;
         }
         else if (g->mc <= MC_1_17)
         {   // Monuments require two viability checks with the ocean layer
             // branch => worth checking for potential deep ocean beforehand.
             g->layered.entry = &g->layered.ls.layers[L_SHORE_16];
-            id = getBiomeAt(g, 0, chunkX, 0, chunkZ);
+            const auto id = getBiomeAt(g, 0, chunkX, 0, chunkZ);
             if (id < 0 || !isDeepOcean(id))
-                goto L_not_viable;
+                return 0;
         }
-        sampleX = chunkX * 16 + 8;
-        sampleZ = chunkZ * 16 + 8;
+
+        const auto sampleX = chunkX * 16 + 8;
+        const auto sampleZ = chunkZ * 16 + 8;
         if (g->mc >= MC_1_9 && g->mc <= MC_1_17)
         {   // check for deep ocean center
             if (!areBiomesViable(g, sampleX, 63, sampleZ, 16, g_monument_biomes2, 0, approx))
-                goto L_not_viable;
+                return 0;
         }
         else if (g->mc >= MC_1_18)
         {   // check is done at y level of ocean floor - approx. with y = 36
-            id = getBiomeAt(g, 4, sampleX>>2, 36>>2, sampleZ>>2);
+            const auto id = getBiomeAt(g, 4, sampleX>>2, 36>>2, sampleZ>>2);
             if (!isDeepOcean(id))
-                goto L_not_viable;
+                return 0;
         }
-        if (areBiomesViable(g, sampleX, 63, sampleZ, 29, g_monument_biomes1, 0, approx))
-            goto L_viable;
-        goto L_not_viable;
+
+        return areBiomesViable(g, sampleX, 63, sampleZ, 29, g_monument_biomes1, 0, approx) ? 1 : 0;
+    }
 
     case Mansion:
+    {
         if (g->mc <= MC_1_10)
-            goto L_not_viable;
+            return 0;
         if (g->mc <= MC_1_17)
         {
-            sampleX = chunkX * 16 + 8;
-            sampleZ = chunkZ * 16 + 8;
-            uint64_t b = (1ULL << dark_forest);
-            uint64_t m = (1ULL << (dark_forest_hills-128));
+            const auto sampleX = chunkX * 16 + 8;
+            const auto sampleZ = chunkZ * 16 + 8;
+            const uint64_t b = (1ULL << dark_forest);
+            const uint64_t m = (1ULL << (dark_forest_hills-128));
             if (!areBiomesViable(g, sampleX, 0, sampleZ, 32, b, m, approx))
-                goto L_not_viable;
+                return 0;
+            return 1;
         }
-        else
-        {   // In 1.18 the generation gets the minimum surface height among the
-            // four structure corners (note structure has rotation).
-            // This minimum height has to be y >= 60. The biome check is done
-            // at the center position at that height.
-            // TODO: get surface height
-            sampleX = chunkX * 16 + 7;
-            sampleZ = chunkZ * 16 + 7;
-            id = getBiomeAt(g, 4, sampleX>>2, 319>>2, sampleZ>>2);
-            if (id < 0 || !isViableFeatureBiome(g->mc, structureType, id))
-                goto L_not_viable;
-        }
-        goto L_viable;
-
-    case Ruined_Portal:
-    case Ruined_Portal_N:
-        if (g->mc <= MC_1_15)
-            goto L_not_viable;
-        goto L_viable;
-
-    case Geode:
-        if (g->mc <= MC_1_16)
-            goto L_not_viable;
-        goto L_viable;
+        // In 1.18 the generation gets the minimum surface height among the
+        // four structure corners (note structure has rotation).
+        // This minimum height has to be y >= 60. The biome check is done
+        // at the center position at that height.
+        // TODO: get surface height
+        const auto sampleX = chunkX * 16 + 7;
+        const auto sampleZ = chunkZ * 16 + 7;
+        const auto id = getBiomeAt(g, 4, sampleX>>2, 319>>2, sampleZ>>2);
+        return (id >= 0 && isViableFeatureBiome(g->mc, structureType, id)) ? 1 : 0;
+    }
 
     case Ancient_City:
-        if (g->mc <= MC_1_18) goto L_not_viable;
-        goto L_jigsaw;
+        if (g->mc <= MC_1_18)
+            return 0;
+        [[fallthrough]];
 
     case Trial_Chambers:
-        if (g->mc <= MC_1_20) goto L_not_viable;
-L_jigsaw:
-        {
-            StructureVariant sv;
-            getVariant(&sv, structureType, g->mc, g->seed, x, z, -1);
-            sampleX = (chunkX*32 + 2*sv.x + sv.sx - 1) / 2 >> 2;
-            sampleZ = (chunkZ*32 + 2*sv.z + sv.sz - 1) / 2 >> 2;
-            sampleY = sv.y >> 2;
-            id = getBiomeAt(g, 4, sampleX, sampleY, sampleZ);
-        }
-        if (id < 0 || !isViableFeatureBiome(g->mc, structureType, id))
-            goto L_not_viable;
-        goto L_viable;
-
-    case Mineshaft:
-        goto L_viable;
+    {
+        if (structureType == Trial_Chambers && g->mc <= MC_1_20)
+            return 0;
+        StructureVariant sv{};
+        getVariant(&sv, structureType, g->mc, g->seed, x, z, -1);
+        const auto sampleX = (chunkX*32 + 2*sv.x + sv.sx - 1) / 2 >> 2;
+        const auto sampleZ = (chunkZ*32 + 2*sv.z + sv.sz - 1) / 2 >> 2;
+        const auto sampleY = sv.y >> 2;
+        const auto id = getBiomeAt(g, 4, sampleX, sampleY, sampleZ);
+        return (id >= 0 && isViableFeatureBiome(g->mc, structureType, id)) ? 1 : 0;
+    }
 
     default:
         fprintf(stderr,
                 "isViableStructurePos: bad structure type %d or dimension %d\n",
                 structureType, g->dim);
-        goto L_not_viable;
+        return 0;
     }
-
-L_viable:
-    if (!viable)
-        viable = 1;
-L_not_viable:
-    if (g->mc <= MC_1_17)
-    {
-        g->layered.ls.layers[L_BIOME_256] = lbiome;
-        g->layered.ls.layers[L_SHORE_16] = lshore;
-        g->layered.entry = entry;
-    }
-    return viable;
 }
 
 
@@ -1972,6 +2317,7 @@ STRUCT(PieceEnv)
     int *n;
     uint64_t *rng;
     int *ship;
+    std::vector<int> *pending;
     int y;
     int typlast;
     int nmax;
@@ -1985,15 +2331,485 @@ static piecefunc_t genBridge;
 static piecefunc_t genHouseTower;
 static piecefunc_t genFatTower;
 
-
-int getVariant(StructureVariant *r, int structType, int mc, uint64_t seed,
-        int x, int z, int biomeID)
+struct EndCityPieceInfo
 {
-    int t;
-    char sx, sy, sz;
+    int sx;
+    int sy;
+    int sz;
+    const char *name;
+};
+
+constexpr std::array<EndCityPieceInfo, 20> kEndCityPieceInfo{{
+    {  9,  3,  9, "base_floor"},
+    { 11,  1, 11, "base_roof"},
+    {  4,  5,  1, "bridge_end"},
+    {  4,  6,  7, "bridge_gentle_stairs"},
+    {  4,  5,  3, "bridge_piece"},
+    {  4,  6,  3, "bridge_steep_stairs"},
+    { 12,  3, 12, "fat_tower_base"},
+    { 12,  7, 12, "fat_tower_middle"},
+    { 16,  5, 16, "fat_tower_top"},
+    { 11,  7, 11, "second_floor_1"},
+    { 11,  7, 11, "second_floor_2"},
+    { 13,  1, 13, "second_roof"},
+    { 12, 23, 28, "ship"},
+    { 13,  7, 13, "third_floor_1"},
+    { 13,  7, 13, "third_floor_2"},
+    { 15,  1, 15, "third_roof"},
+    {  6,  6,  6, "tower_base"},
+    {  6,  3,  6, "tower_floor"}, // unused
+    {  6,  3,  6, "tower_piece"},
+    {  8,  4,  8, "tower_top"},
+}};
+
+template <typename Table, typename Key, typename Proj>
+constexpr auto table_lookup(const Table &table, const Key &key, Proj proj)
+    -> const typename Table::value_type*
+{
+    for (const auto &entry : table)
+    {
+        if (entry.*proj == key)
+            return &entry;
+    }
+    return nullptr;
+}
+
+
+namespace {
+
+struct Footprint
+{
+    int sx;
+    int sy;
+    int sz;
+};
+
+struct WeightedVariantChoice
+{
+    int upper_exclusive;
+    std::uint8_t start;
+    Footprint size;
+    bool abandoned;
+};
+
+constexpr auto apply_orthogonal_rotation(StructureVariant &variant, int sx, int sz, int rotation) -> void
+{
+    switch (rotation)
+    { // orientation: 0:north, 1:east, 2:south, 3:west
+    case 0: variant.rotation = 0; variant.mirror = 0; variant.sx = sx; variant.sz = sz; break;
+    case 1: variant.rotation = 1; variant.mirror = 0; variant.sx = sz; variant.sz = sx; break;
+    case 2: variant.rotation = 0; variant.mirror = 1; variant.sx = sx; variant.sz = sz; break;
+    case 3: variant.rotation = 1; variant.mirror = 1; variant.sx = sz; variant.sz = sx; break;
+    default: std::unreachable();
+    }
+}
+
+constexpr auto maybe_temple_footprint(int structure_type, Footprint &out) -> bool
+{
+    switch (structure_type)
+    {
+    case Desert_Pyramid: out = Footprint{21, 15, 21}; return true;
+    case Jungle_Temple:  out = Footprint{12, 10, 15}; return true;
+    case Swamp_Hut:      out = Footprint{ 7,  7,  9}; return true;
+    default: return false;
+    }
+}
+
+auto init_igloo_variant(
+    StructureVariant &variant,
+    int mc,
+    std::uint64_t seed,
+    int x,
+    int z,
+    std::uint64_t &rng
+) -> void
+{
+    if (mc <= MC_1_12)
+    {
+        setSeed(&rng, getPopulationSeed(mc, seed, (x>>4) - 1, (z>>4) - 1));
+    }
+    variant.rotation = nextInt(&rng, 4);
+    variant.basement = nextDouble(&rng) < 0.5;
+    variant.size = nextInt(&rng, 8) + 4;
+    variant.sy = 5;
+    apply_orthogonal_rotation(variant, 7, 8, variant.rotation);
+}
+
+auto init_rotated_feature_bounds(
+    StructureVariant &variant,
+    int mc,
+    int x,
+    int z,
+    int sx,
+    int sy,
+    int sz
+) -> int;
+
+template <std::size_t N>
+auto apply_weighted_choice(
+    StructureVariant &variant,
+    int roll,
+    const std::array<WeightedVariantChoice, N> &choices,
+    Footprint &size_out
+) -> bool
+{
+    for (const auto &choice : choices)
+    {
+        if (roll < choice.upper_exclusive)
+        {
+            variant.start = choice.start;
+            variant.abandoned = choice.abandoned ? 1 : 0;
+            size_out = choice.size;
+            return true;
+        }
+    }
+    return false;
+}
+
+auto init_village_variant(
+    StructureVariant &variant,
+    int mc,
+    int biome_id,
+    std::uint64_t &rng,
+    int x,
+    int z
+) -> int
+{
+    if (mc <= MC_1_9)
+        return 0;
+    if (!isViableFeatureBiome(mc, Village, biome_id))
+        return 0;
+    if (mc <= MC_1_13)
+    {
+        skipNextN(&rng, mc == MC_1_13 ? 10 : 11);
+        variant.abandoned = nextInt(&rng, 50) == 0;
+        return 1;
+    }
+
+    variant.biome = (biome_id == meadow) ? plains : biome_id;
+    variant.rotation = nextInt(&rng, 4);
+    Footprint size{};
+
+    switch (variant.biome)
+    {
+    case plains: {
+        constexpr std::array<WeightedVariantChoice, 8> kChoices{{
+            { 50, 0, { 9, 4,  9}, false},
+            {100, 1, {10, 7, 10}, false},
+            {150, 2, { 8, 5, 15}, false},
+            {200, 3, {11, 9, 11}, false},
+            {201, 0, { 9, 4,  9}, true },
+            {202, 1, {10, 7, 10}, true },
+            {203, 2, { 8, 5, 15}, true },
+            {204, 3, {11, 9, 11}, true },
+        }};
+        if (!apply_weighted_choice(variant, nextInt(&rng, 204), kChoices, size))
+            std::unreachable();
+        break;
+    }
+    case desert: {
+        constexpr std::array<WeightedVariantChoice, 6> kChoices{{
+            { 98, 1, {17, 6,  9}, false},
+            {196, 2, {12, 6, 12}, false},
+            {245, 3, {15, 6, 15}, false},
+            {247, 1, {17, 6,  9}, true },
+            {249, 2, {12, 6, 12}, true },
+            {250, 3, {15, 6, 15}, true },
+        }};
+        if (!apply_weighted_choice(variant, nextInt(&rng, 250), kChoices, size))
+            std::unreachable();
+        break;
+    }
+    case savanna: {
+        constexpr std::array<WeightedVariantChoice, 8> kChoices{{
+            {100, 1, {14, 5, 12}, false},
+            {150, 2, {11, 6, 11}, false},
+            {300, 3, { 9, 6, 11}, false},
+            {450, 4, { 9, 6,  9}, false},
+            {452, 1, {14, 5, 12}, true },
+            {453, 2, {11, 6, 11}, true },
+            {456, 3, { 9, 6, 11}, true },
+            {459, 4, { 9, 6,  9}, true },
+        }};
+        if (!apply_weighted_choice(variant, nextInt(&rng, 459), kChoices, size))
+            std::unreachable();
+        break;
+    }
+    case taiga: {
+        constexpr std::array<WeightedVariantChoice, 4> kChoices{{
+            { 49, 1, {22, 3, 18}, false},
+            { 98, 2, { 9, 7,  9}, false},
+            { 99, 1, {22, 3, 18}, true },
+            {100, 2, { 9, 7,  9}, true },
+        }};
+        if (!apply_weighted_choice(variant, nextInt(&rng, 100), kChoices, size))
+            std::unreachable();
+        break;
+    }
+    case snowy_tundra: {
+        constexpr std::array<WeightedVariantChoice, 6> kChoices{{
+            {100, 1, {12, 8, 8}, false},
+            {150, 2, {11, 5, 9}, false},
+            {300, 3, { 7, 7, 7}, false},
+            {302, 1, {12, 8, 8}, true },
+            {303, 2, {11, 5, 9}, true },
+            {306, 3, { 7, 7, 7}, true },
+        }};
+        if (!apply_weighted_choice(variant, nextInt(&rng, 306), kChoices, size))
+            std::unreachable();
+        break;
+    }
+    default:
+        return 0;
+    }
+
+    return init_rotated_feature_bounds(variant, mc, x, z, size.sx, size.sy, size.sz);
+}
+
+auto init_bastion_variant(
+    StructureVariant &variant,
+    int mc,
+    std::uint64_t &rng,
+    int x,
+    int z
+) -> int
+{
+    static constexpr std::array<Footprint, 4> kBastionStarts{{
+        {46, 24, 46}, // units/air_base
+        {30, 24, 48}, // hoglin_stable/air_base
+        {38, 48, 38}, // treasure/big_air_full
+        {16, 32, 32}, // bridge/starting_pieces/entrance_base
+    }};
+    variant.rotation = nextInt(&rng, 4);
+    variant.start = nextInt(&rng, 4);
+    if (mc == MC_1_16_1)
+    {   // swapped in 1.16.1 only
+        const auto tmp = variant.start;
+        variant.start = variant.rotation;
+        variant.rotation = tmp;
+    }
+    const auto &size = kBastionStarts[static_cast<std::size_t>(variant.start)];
+    return init_rotated_feature_bounds(variant, mc, x, z, size.sx, size.sy, size.sz);
+}
+
+auto init_temple_variant(StructureVariant &variant, int structure_type, int mc, std::uint64_t &rng) -> int
+{
+    Footprint dims{};
+    if (!maybe_temple_footprint(structure_type, dims))
+        return 0;
+    variant.sy = dims.sy;
+    if (mc <= MC_1_19)
+    {
+        variant.sx = dims.sx;
+        variant.sz = dims.sz;
+        return 1;
+    }
+    apply_orthogonal_rotation(variant, dims.sx, dims.sz, nextInt(&rng, 4));
+    return 1;
+}
+
+auto init_trial_chambers_variant(StructureVariant &variant, std::uint64_t &rng) -> int
+{
+    variant.y = nextInt(&rng, 1 + 20) - 40;
+    variant.rotation = nextInt(&rng, 4);
+    variant.start = nextInt(&rng, 2);
+    variant.sx = 19;
+    variant.sy = 20;
+    variant.sz = 19;
+    switch (variant.rotation)
+    { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
+    case 0: break;
+    case 1: variant.x = 1 - variant.sz; variant.z = 0; break;
+    case 2: variant.x = 1 - variant.sx; variant.z = 1 - variant.sz; break;
+    case 3: variant.x = 0; variant.z = 1 - variant.sx; break;
+    default: std::unreachable();
+    }
+    return 1;
+}
+
+auto init_rotated_feature_bounds(
+    StructureVariant &variant,
+    int mc,
+    int x,
+    int z,
+    int sx,
+    int sy,
+    int sz
+) -> int
+{
+    variant.sy = sy;
+    if (mc >= MC_1_18)
+    {
+        switch (variant.rotation)
+        { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
+        case 0: variant.x = 0;    variant.z = 0;    variant.sx = sx; variant.sz = sz; break;
+        case 1: variant.x = 1-sz; variant.z = 0;    variant.sx = sz; variant.sz = sx; break;
+        case 2: variant.x = 1-sx; variant.z = 1-sz; variant.sx = sx; variant.sz = sz; break;
+        case 3: variant.x = 0;    variant.z = 1-sx; variant.sx = sz; variant.sz = sx; break;
+        default: std::unreachable();
+        }
+    }
+    else
+    {
+        switch (variant.rotation)
+        { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
+        case 0: variant.x = 0;        variant.z = 0;        variant.sx = sx; variant.sz = sz; break;
+        case 1: variant.x = (x<0)-sz; variant.z = 0;        variant.sx = sz; variant.sz = sx; break;
+        case 2: variant.x = (x<0)-sx; variant.z = (z<0)-sz; variant.sx = sx; variant.sz = sz; break;
+        case 3: variant.x = 0;        variant.z = (z<0)-sx; variant.sx = sz; variant.sz = sx; break;
+        default: std::unreachable();
+        }
+    }
+    return 1;
+}
+
+auto init_geode_variant(
+    StructureVariant &variant,
+    int mc,
+    std::uint64_t seed,
+    int x,
+    int z,
+    std::uint64_t &rng
+) -> int
+{
+    StructureConfig sc{};
+    getStructureConfig(Geode, mc, &sc);
+    if (mc >= MC_1_18)
+    {
+        Xoroshiro xr{};
+        xSetSeed(&xr, getPopulationSeed(mc, seed, x&~15, z&~15) + sc.salt);
+        if (xNextFloat(&xr) >= sc.rarity)
+            return 0;
+        variant.x = xNextIntJ(&xr, 16);
+        variant.z = xNextIntJ(&xr, 16);
+        variant.x -= x & 15;
+        variant.z -= z & 15;
+        variant.y = xNextIntJ(&xr, 1 + 30 + 58) - 58;
+        variant.size = xNextIntJ(&xr, 2) + 3;
+        xSkipN(&xr, 2);
+        variant.cracked = xNextFloat(&xr) < 0.95;
+    }
+    else
+    {
+        setSeed(&rng, getPopulationSeed(mc, seed, x&~15, z&~15) + sc.salt);
+        if (nextFloat(&rng) >= sc.rarity)
+            return 0;
+        variant.x = nextInt(&rng, 16);
+        variant.z = nextInt(&rng, 16);
+        variant.x -= x & 15;
+        variant.z -= z & 15;
+        variant.y = nextInt(&rng, 1+46-6) + 6;
+        variant.size = nextInt(&rng, 2) + 3;
+        skipNextN(&rng, 2);
+        variant.cracked = nextFloat(&rng) < 0.95;
+    }
+    variant.x += 5;
+    variant.y += 5;
+    variant.z += 5;
+    return 1;
+}
+
+template <typename T, std::size_t N>
+constexpr auto contains(const std::array<T, N> &arr, T value) -> bool
+{
+    for (const auto &entry : arr)
+    {
+        if (entry == value)
+            return true;
+    }
+    return false;
+}
+
+auto resolve_ruined_portal_biome(int mc, int biome_id) -> int
+{
+    const auto category = getCategory(mc, biome_id);
+    static constexpr std::array<int, 5> kDirectCategories{
+        desert, jungle, swamp, ocean, nether_wastes
+    };
+    if (contains(kDirectCategories, category))
+        return category;
+
+    if (biome_id == mangrove_swamp)
+        return swamp;
+
+    static constexpr std::array<int, 20> kMountainLikeBiomes{
+        mountains, mountain_edge, wooded_mountains, gravelly_mountains,
+        modified_gravelly_mountains, savanna_plateau, shattered_savanna,
+        shattered_savanna_plateau, badlands, eroded_badlands, wooded_badlands_plateau,
+        modified_badlands_plateau, modified_wooded_badlands_plateau,
+        snowy_taiga_mountains, taiga_mountains, stony_shore, meadow,
+        frozen_peaks, jagged_peaks, stony_peaks
+    };
+    if (contains(kMountainLikeBiomes, biome_id) || biome_id == snowy_slopes)
+        return mountains;
+
+    return plains;
+}
+
+auto init_ruined_portal_variant(
+    StructureVariant &variant,
+    int mc,
+    int biome_id,
+    std::uint64_t &rng
+) -> int
+{
+    variant.biome = resolve_ruined_portal_biome(mc, biome_id);
+    if (variant.biome == plains || variant.biome == mountains)
+    {
+        variant.underground = nextFloat(&rng) < 0.5f;
+        if (variant.underground)
+            variant.airpocket = 1;
+        else
+            variant.airpocket = nextFloat(&rng) < 0.5f;
+    }
+    else if (variant.biome == jungle)
+    {
+        variant.airpocket = nextFloat(&rng) < 0.5f;
+    }
+
+    variant.giant = nextFloat(&rng) < 0.05f;
+    variant.start = variant.giant ? (1 + nextInt(&rng, 3)) : (1 + nextInt(&rng, 10));
+    variant.rotation = nextInt(&rng, 4);
+    variant.mirror = nextFloat(&rng) < 0.5f;
+    return 1;
+}
+
+auto init_ancient_city_variant(StructureVariant &variant, std::uint64_t &rng, int x, int z) -> int
+{
+    variant.rotation = nextInt(&rng, 4);
+    variant.start = 1 + nextInt(&rng, 3); // city_center_1..3
+    constexpr int center_sx = 18;
+    constexpr int center_sy = 31;
+    constexpr int center_sz = 41;
+    switch (variant.rotation)
+    { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
+    case 0: x = -(x>0);            z = -(z>0);            variant.sx = center_sx; variant.sz = center_sz; break;
+    case 1: x = +(x<0) - center_sz; z = -(z>0);           variant.sx = center_sz; variant.sz = center_sx; break;
+    case 2: x = +(x<0) - center_sx; z = +(z<0) - center_sz; variant.sx = center_sx; variant.sz = center_sz; break;
+    case 3: x = -(x>0);            z = +(z<0) - center_sx; variant.sx = center_sz; variant.sz = center_sx; break;
+    default: std::unreachable();
+    }
+    constexpr int anchor_sx = 13;
+    constexpr int anchor_sz = 20;
+    switch (variant.rotation)
+    { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
+    case 0: variant.x = x-anchor_sx; variant.z = z-anchor_sz; break;
+    case 1: variant.x = x+anchor_sz; variant.z = z-anchor_sx; break;
+    case 2: variant.x = x+anchor_sx; variant.z = z+anchor_sz; break;
+    case 3: variant.x = x-anchor_sz; variant.z = z+anchor_sx; break;
+    default: std::unreachable();
+    }
+    variant.y = -27;
+    variant.sy = center_sy;
+    return 1;
+}
+
+auto get_variant_impl(StructureVariant *r, int structType, int mc, std::uint64_t seed,
+        int x, int z, int biomeID) -> int
+{
     uint64_t rng = chunkGenerateRnd(seed, x >> 4, z >> 4);
 
-    memset(r, 0, sizeof(*r));
+    *r = StructureVariant{};
     r->start = -1;
     r->biome = -1;
     r->y = 320;
@@ -2001,228 +2817,17 @@ int getVariant(StructureVariant *r, int structType, int mc, uint64_t seed,
     switch (structType)
     {
     case Village:
-        if (mc <= MC_1_9)
-            return 0;
-        if (!isViableFeatureBiome(mc, Village, biomeID))
-            return 0;
-        if (mc <= MC_1_13)
-        {
-            skipNextN(&rng, mc == MC_1_13 ? 10 : 11);
-            r->abandoned = nextInt(&rng, 50) == 0;
-            return 1;
-        }
-        r->biome = biomeID;
-        r->rotation = nextInt(&rng, 4);
-        switch (biomeID)
-        {
-        case meadow:
-            r->biome = plains;
-            // fallthrough
-        case plains:
-            t = nextInt(&rng, 204);
-            if      (t <  50) { r->start = 0; sx =  9; sy = 4; sz =  9; } // plains_fountain_01
-            else if (t < 100) { r->start = 1; sx = 10; sy = 7; sz = 10; } // plains_meeting_point_1
-            else if (t < 150) { r->start = 2; sx =  8; sy = 5; sz = 15; } // plains_meeting_point_2
-            else if (t < 200) { r->start = 3; sx = 11; sy = 9; sz = 11; } // plains_meeting_point_3
-            else if (t < 201) { r->start = 0; sx =  9; sy = 4; sz =  9; r->abandoned = 1; }
-            else if (t < 202) { r->start = 1; sx = 10; sy = 7; sz = 10; r->abandoned = 1; }
-            else if (t < 203) { r->start = 2; sx =  8; sy = 5; sz = 15; r->abandoned = 1; }
-            else if (t < 204) { r->start = 3; sx = 11; sy = 9; sz = 11; r->abandoned = 1; }
-            else UNREACHABLE();
-            break;
-        case desert:
-            t = nextInt(&rng, 250);
-            if      (t <  98) { r->start = 1; sx = 17; sy = 6; sz =  9; } // desert_meeting_point_1
-            else if (t < 196) { r->start = 2; sx = 12; sy = 6; sz = 12; } // desert_meeting_point_2
-            else if (t < 245) { r->start = 3; sx = 15; sy = 6; sz = 15; } // desert_meeting_point_3
-            else if (t < 247) { r->start = 1; sx = 17; sy = 6; sz =  9; r->abandoned = 1; }
-            else if (t < 249) { r->start = 2; sx = 12; sy = 6; sz = 12; r->abandoned = 1; }
-            else if (t < 250) { r->start = 3; sx = 15; sy = 6; sz = 15; r->abandoned = 1; }
-            else UNREACHABLE();
-            break;
-        case savanna:
-            t = nextInt(&rng, 459);
-            if      (t < 100) { r->start = 1; sx = 14; sy = 5; sz = 12; } // savanna_meeting_point_1
-            else if (t < 150) { r->start = 2; sx = 11; sy = 6; sz = 11; } // savanna_meeting_point_2
-            else if (t < 300) { r->start = 3; sx =  9; sy = 6; sz = 11; } // savanna_meeting_point_3
-            else if (t < 450) { r->start = 4; sx =  9; sy = 6; sz =  9; } // savanna_meeting_point_4
-            else if (t < 452) { r->start = 1; sx = 14; sy = 5; sz = 12; r->abandoned = 1; }
-            else if (t < 453) { r->start = 2; sx = 11; sy = 6; sz = 11; r->abandoned = 1; }
-            else if (t < 456) { r->start = 3; sx =  9; sy = 6; sz = 11; r->abandoned = 1; }
-            else if (t < 459) { r->start = 4; sx =  9; sy = 6; sz =  9; r->abandoned = 1; }
-            else UNREACHABLE();
-            break;
-        case taiga:
-            t = nextInt(&rng, 100);
-            if      (t <  49) { r->start = 1; sx = 22; sy = 3; sz = 18; } // taiga_meeting_point_1
-            else if (t <  98) { r->start = 2; sx =  9; sy = 7; sz =  9; } // taiga_meeting_point_2
-            else if (t <  99) { r->start = 1; sx = 22; sy = 3; sz = 18; r->abandoned = 1; }
-            else if (t < 100) { r->start = 2; sx =  9; sy = 7; sz =  9; r->abandoned = 1; }
-            else UNREACHABLE();
-            break;
-        case snowy_tundra:
-            t = nextInt(&rng, 306);
-            if      (t < 100) { r->start = 1; sx = 12; sy = 8; sz =  8; } // snowy_meeting_point_1
-            else if (t < 150) { r->start = 2; sx = 11; sy = 5; sz =  9; } // snowy_meeting_point_2
-            else if (t < 300) { r->start = 3; sx =  7; sy = 7; sz =  7; } // snowy_meeting_point_3
-            else if (t < 302) { r->start = 1; sx = 12; sy = 8; sz =  8; r->abandoned = 1; }
-            else if (t < 303) { r->start = 2; sx = 11; sy = 5; sz =  9; r->abandoned = 1; }
-            else if (t < 306) { r->start = 3; sx =  7; sy = 7; sz =  7; r->abandoned = 1; }
-            else UNREACHABLE();
-            break;
-        default:
-            sx = sy = sz = 0;
-            return 0;
-        }
-        goto L_rotate_village_bastion;
+        return init_village_variant(*r, mc, biomeID, rng, x, z);
 
     case Bastion:
-        r->rotation = nextInt(&rng, 4);
-        r->start = nextInt(&rng, 4);
-        if (mc == MC_1_16_1)
-        {   // swapped in 1.16.1 only
-            uint8_t tmp = r->start;
-            r->start = r->rotation;
-            r->rotation = tmp;
-        }
-        switch (r->start)
-        {
-        case 0: sx = 46; sy = 24; sz = 46; break; // units/air_base
-        case 1: sx = 30; sy = 24; sz = 48; break; // hoglin_stable/air_base
-        case 2: sx = 38; sy = 48; sz = 38; break; // treasure/big_air_full
-        case 3: sx = 16; sy = 32; sz = 32; break; // bridge/starting_pieces/entrance_base
-        }
-    L_rotate_village_bastion:
-        r->sy = sy;
-        if (mc >= MC_1_18)
-        {
-            switch (r->rotation)
-            { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
-            case 0: r->x = 0;    r->z = 0;    r->sx = sx; r->sz = sz; break;
-            case 1: r->x = 1-sz; r->z = 0;    r->sx = sz; r->sz = sx; break;
-            case 2: r->x = 1-sx; r->z = 1-sz; r->sx = sx; r->sz = sz; break;
-            case 3: r->x = 0;    r->z = 1-sx; r->sx = sz; r->sz = sx; break;
-            }
-        }
-        else
-        {
-            switch (r->rotation)
-            { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
-            case 0: r->x = 0;        r->z = 0;        r->sx = sx; r->sz = sz; break;
-            case 1: r->x = (x<0)-sz; r->z = 0;        r->sx = sz; r->sz = sx; break;
-            case 2: r->x = (x<0)-sx; r->z = (z<0)-sz; r->sx = sx; r->sz = sz; break;
-            case 3: r->x = 0;        r->z = (z<0)-sx; r->sx = sz; r->sz = sx; break;
-            }
-        }
-        return 1;
+        return init_bastion_variant(*r, mc, rng, x, z);
 
     case Ancient_City:
-        r->rotation = nextInt(&rng, 4);
-        r->start = 1 + nextInt(&rng, 3); // city_center_1..3
-        sx = 18; sy = 31; sz = 41;
-        switch (r->rotation)
-        { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
-        case 0: x = -(x>0);    z = -(z>0);    r->sx = sx; r->sz = sz; break;
-        case 1: x = +(x<0)-sz; z = -(z>0);    r->sx = sz; r->sz = sx; break;
-        case 2: x = +(x<0)-sx; z = +(z<0)-sz; r->sx = sx; r->sz = sz; break;
-        case 3: x = -(x>0);    z = +(z<0)-sx; r->sx = sz; r->sz = sx; break;
-        }
-        // note the city_anchor (13, *, 20) is part of the city_center
-        sx = 13; sz = 20; // city_anchor
-        switch (r->rotation)
-        { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
-        case 0: r->x = x-sx; r->z = z-sz; break; // 0:0
-        case 1: r->x = x+sz; r->z = z-sx; break; // 1:cw90
-        case 2: r->x = x+sx; r->z = z+sz; break; // 2:cw180
-        case 3: r->x = x-sz; r->z = z+sx; break; // 3:cw270=ccw90
-        }
-        r->y = -27;
-        r->sy = sy;
-        return 1;
+        return init_ancient_city_variant(*r, rng, x, z);
 
     case Ruined_Portal:
     case Ruined_Portal_N:
-        // Ruined portals are split into 7 types that generate independenly
-        // from one another, each in a certain set of biomes. Together they
-        // cover each biome once (save for the deep_dark) and have no terrain
-        // restrictions, so a ruined portal *should* always generate in each
-        // region. However, in locations with underground biomes, a ruined
-        // portal can fail to generate, or possibly have two ruined portals
-        // above one another, because the biome check is done after selecting
-        // the portal type and generation height, and can therefore vertically
-        // move into unsupported biomes. Testing for this case requires the
-        // surface height and is therefore not supported.
-        {
-            int cat = getCategory(mc, biomeID);
-            switch (cat)
-            {
-            case desert:
-            case jungle:
-            case swamp:
-            case ocean:
-            case nether_wastes:
-                r->biome = cat;
-                break;
-            }
-            if (r->biome == -1)
-            {
-                switch (biomeID)
-                {
-                case mangrove_swamp:
-                    r->biome = swamp;
-                    break;
-                case mountains:                     // windswept_hills
-                case mountain_edge:
-                case wooded_mountains:              // windswept_forest
-                case gravelly_mountains:            // windswept_gravelly_hills
-                case modified_gravelly_mountains:
-                case savanna_plateau:
-                case shattered_savanna:             // windswept_savanna
-                case shattered_savanna_plateau:
-                case badlands:
-                case eroded_badlands:
-                case wooded_badlands_plateau:       // wooded_badlands
-                case modified_badlands_plateau:
-                case modified_wooded_badlands_plateau:
-                case snowy_taiga_mountains:
-                case taiga_mountains:
-                case stony_shore:
-                case meadow:
-                case frozen_peaks:
-                case jagged_peaks:
-                case stony_peaks:
-                case snowy_slopes:
-                    r->biome = mountains;
-                    break;
-                }
-            }
-            if (r->biome == -1)
-                r->biome = plains;
-            if (r->biome == plains || r->biome == mountains)
-            {
-                r->underground = nextFloat(&rng) < 0.5f;
-                if (r->underground)
-                    r->airpocket = 1;
-                else
-                    r->airpocket = nextFloat(&rng) < 0.5f;
-            }
-            else if (r->biome == jungle)
-            {
-                r->airpocket = nextFloat(&rng) < 0.5f;
-            }
-        }
-        r->giant = nextFloat(&rng) < 0.05f;
-        if (r->giant)
-        {   // ruined_portal/giant_portal_1..3
-            r->start = 1 + nextInt(&rng, 3);
-        }
-        else
-        {   // ruined_portal/portal_1..10
-            r->start = 1 + nextInt(&rng, 10);
-        }
-        r->rotation = nextInt(&rng, 4);
-        r->mirror = nextFloat(&rng) < 0.5f;
-        return 1;
+        return init_ruined_portal_variant(*r, mc, biomeID, rng);
 
     case Monument:
         r->x = r->z = -29;
@@ -2230,154 +2835,59 @@ int getVariant(StructureVariant *r, int structType, int mc, uint64_t seed,
         return 1;
 
     case Igloo:
-        if (mc <= MC_1_12)
-        {
-            setSeed(&rng, getPopulationSeed(mc, seed, (x>>4) - 1, (z>>4) - 1));
-        }
-        r->rotation = nextInt(&rng, 4);
-        r->basement = nextDouble(&rng) < 0.5;
-        r->size = nextInt(&rng, 8) + 4;
-        sx = 7; sy = 5; sz = 8;
-        r->sy = sy;
-        switch (r->rotation)
-        { // orientation: 0:north, 1:east, 2:south, 3:west
-        case 0: r->rotation = 0; r->mirror = 0; r->sx = sx; r->sz = sz; break;
-        case 1: r->rotation = 1; r->mirror = 0; r->sx = sz; r->sz = sx; break;
-        case 2: r->rotation = 0; r->mirror = 1; r->sx = sx; r->sz = sz; break;
-        case 3: r->rotation = 1; r->mirror = 1; r->sx = sz; r->sz = sx; break;
-        }
+        init_igloo_variant(*r, mc, seed, x, z, rng);
         return 1;
 
     case Desert_Pyramid:
-        sx = 21; sy = 15; sz = 21;
-        goto L_rotate_temple;
     case Jungle_Temple:
-        sx = 12; sy = 10; sz = 15;
-        goto L_rotate_temple;
     case Swamp_Hut:
-        sx = 7; sy = 7; sz = 9;
-    L_rotate_temple:
-        r->sy = sy;
-        if (mc <= MC_1_19)
-        {
-            r->sx = sx; r->sz = sz;
-            return 1;
-        }
-        switch (nextInt(&rng, 4))
-        { // orientation: 0:north, 1:east, 2:south, 3:west
-        case 0: r->rotation = 0; r->mirror = 0; r->sx = sx; r->sz = sz; break;
-        case 1: r->rotation = 1; r->mirror = 0; r->sx = sz; r->sz = sx; break;
-        case 2: r->rotation = 0; r->mirror = 1; r->sx = sx; r->sz = sz; break;
-        case 3: r->rotation = 1; r->mirror = 1; r->sx = sz; r->sz = sx; break;
-        }
-        return 1;
+        return init_temple_variant(*r, structType, mc, rng);
 
     case Geode:
-        if (mc >= MC_1_18)
-        {
-            StructureConfig sc;
-            getStructureConfig(Geode, mc, &sc);
-            Xoroshiro xr;
-            xSetSeed(&xr, getPopulationSeed(mc, seed, x&~15, z&~15) + sc.salt);
-            if (xNextFloat(&xr) >= sc.rarity) // rarity chance
-                return 0;
-            r->x = xNextIntJ(&xr, 16); // chunk offset X
-            r->z = xNextIntJ(&xr, 16); // chunk offset Z
-            r->x -= x & 15; // make offset relative to x and z
-            r->z -= z & 15;
-            r->y = xNextIntJ(&xr, 1+30+58) - 58; // Y-level
-            r->size = xNextIntJ(&xr, 2) + 3; // distribution points
-            xSkipN(&xr, 2);
-            r->cracked = xNextFloat(&xr) < 0.95;
-            // geodes generate somewhat sperical around a set of points with
-            // offset 4-6 on each coordinate
-            r->x += 5; r->y += 5; r->z += 5;
-        }
-        else
-        {
-            StructureConfig sc;
-            getStructureConfig(Geode, mc, &sc);
-            setSeed(&rng, getPopulationSeed(mc, seed, x&~15, z&~15) + sc.salt);
-            if (nextFloat(&rng) >= sc.rarity) // rarity chance
-                return 0;
-            r->x = nextInt(&rng, 16); // chunk offset X
-            r->z = nextInt(&rng, 16); // chunk offset Z
-            r->x -= x & 15;
-            r->z -= z & 15;
-            r->y = nextInt(&rng, 1+46-6) + 6; // Y-level
-            r->size = nextInt(&rng, 2) + 3;
-            skipNextN(&rng, 2);
-            r->cracked = nextFloat(&rng) < 0.95;
-            r->x += 5; r->y += 5; r->z += 5;
-        }
-        return 1;
+        return init_geode_variant(*r, mc, seed, x, z, rng);
 
     case Trial_Chambers:
-        r->y = nextInt(&rng, 1+20) + -40; // Y-level
-        r->rotation = nextInt(&rng, 4);
-        r->start = nextInt(&rng, 2); // corridor/end_[12]
-        r->sx = 19; r->sy = 20; r->sz = 19;
-        //r->y += -1; // groundLevelData
-        switch (r->rotation)
-        { // 0:0, 1:cw90, 2:cw180, 3:cw270=ccw90
-        case 0: break;
-        case 1: r->x = 1-r->sz; r->z = 0;       break;
-        case 2: r->x = 1-r->sx; r->z = 1-r->sz; break;
-        case 3: r->x = 0;       r->z = 1-r->sx; break;
-        }
-        return 1;
+        return init_trial_chambers_variant(*r, rng);
 
     default:
         return 0;
     }
 }
 
+} // namespace
+
+int getVariant(StructureVariant *r, int structType, int mc, uint64_t seed,
+        int x, int z, int biomeID)
+{
+    return get_variant_impl(r, structType, mc, seed, x, z, biomeID);
+}
+
 static
 Piece *addEndCityPiece(PieceEnv *env, Piece *prev, int rot, int px, int py, int pz, int typ)
 {
-    static const struct { int sx, sy, sz; const char *name; } info[] = {
-        {  9,  3,  9, "base_floor"},
-        { 11,  1, 11, "base_roof"},
-        {  4,  5,  1, "bridge_end"},
-        {  4,  6,  7, "bridge_gentle_stairs"},
-        {  4,  5,  3, "bridge_piece"},
-        {  4,  6,  3, "bridge_steep_stairs"},
-        { 12,  3, 12, "fat_tower_base"},
-        { 12,  7, 12, "fat_tower_middle"},
-        { 16,  5, 16, "fat_tower_top"},
-        { 11,  7, 11, "second_floor_1"},
-        { 11,  7, 11, "second_floor_2"},
-        { 13,  1, 13, "second_roof"},
-        { 12, 23, 28, "ship"},
-        { 13,  7, 13, "third_floor_1"},
-        { 13,  7, 13, "third_floor_2"},
-        { 15,  1, 15, "third_roof"},
-        {  6,  6,  6, "tower_base"},
-        {  6,  3,  6, "tower_floor"}, // unused
-        {  6,  3,  6, "tower_piece"},
-        {  8,  4,  8, "tower_top"},
-    };
+    if (*env->n >= env->nmax)
+        return nullptr;
 
     Piece *p = env->list + *env->n;
     (*env->n)++;
-    p->name = info[typ].name;
+    const auto &piece_info = kEndCityPieceInfo[static_cast<std::size_t>(typ)];
+    p->name = piece_info.name;
     p->rot = rot;
     p->depth = 0;
     p->type = typ;
-    p->next = NULL;
 
     Pos3 pos = {px, py, pz};
     if (prev)
         pos = prev->pos;
     p->bb0 = p->bb1 = p->pos = pos;
-    p->bb1.y += info[typ].sy;
+    p->bb1.y += piece_info.sy;
     switch (rot)
     {
-    case 0: p->bb1.x += info[typ].sx; p->bb1.z += info[typ].sz; break; // 0
-    case 1: p->bb0.x -= info[typ].sz; p->bb1.z += info[typ].sx; break; // 90
-    case 2: p->bb0.x -= info[typ].sx; p->bb0.z -= info[typ].sz; break; // 180
-    case 3: p->bb1.x += info[typ].sz; p->bb0.z -= info[typ].sx; break; // 270
-    default: UNREACHABLE();
+    case 0: p->bb1.x += piece_info.sx; p->bb1.z += piece_info.sz; break; // 0
+    case 1: p->bb0.x -= piece_info.sz; p->bb1.z += piece_info.sx; break; // 90
+    case 2: p->bb0.x -= piece_info.sx; p->bb0.z -= piece_info.sz; break; // 180
+    case 3: p->bb1.x += piece_info.sz; p->bb0.z -= piece_info.sx; break; // 270
+    default: std::unreachable();
     }
     if (prev)
     {
@@ -2388,7 +2898,7 @@ Piece *addEndCityPiece(PieceEnv *env, Piece *prev, int rot, int px, int py, int 
         case 1: dx -= pz; dz += px; break; // 90
         case 2: dx -= px; dz -= pz; break; // 180
         case 3: dx += pz; dz -= px; break; // 270
-        default: UNREACHABLE();
+        default: std::unreachable();
         }
         p->pos.x += dx; p->pos.y += dy; p->pos.z += dz;
         p->bb0.x += dx; p->bb0.y += dy; p->bb0.z += dz;
@@ -2402,10 +2912,13 @@ int genPiecesRecusively(piecefunc_t gen, PieceEnv *env, Piece *current, int dept
 {
     if (depth > 8)
         return 0;
+    if (*env->n >= env->nmax)
+        return 0;
     int i, j, n_local = 0;
     PieceEnv env_local = *env;
     env_local.list = env->list + *env->n;
     env_local.n = &n_local;
+    env_local.nmax = env->nmax - *env->n;
     if (!gen(&env_local, current, depth))
         return 0;
     int gendepth = next(env->rng, 32);
@@ -2439,7 +2952,7 @@ int genTower(PieceEnv *env, Piece *current, int depth)
     Piece *base = current;
     base = addEndCityPiece(env, base, rot, x, -3, z, TOWER_BASE);
     base = addEndCityPiece(env, base, rot, 0, 7, 0, TOWER_PIECE);
-    Piece *floor = (nextInt(env->rng, 3) == 0 ? base : NULL);
+    Piece *floor = (nextInt(env->rng, 3) == 0 ? base : nullptr);
     int floorcnt = 1 + nextInt(env->rng, 3);
     int i;
     for (i = 0; i < floorcnt; i++)
@@ -2578,13 +3091,13 @@ int getEndCityPieces(Piece *list, uint64_t seed, int chunkX, int chunkZ)
     uint64_t rng = chunkGenerateRnd(seed, chunkX, chunkZ);
     int rot = nextInt(&rng, 4);
     int ship = 0, n = 0;
-    PieceEnv env;
-    memset(&env, 0, sizeof(env));
+    PieceEnv env{};
     env.list = list;
     env.n = &n;
     env.rng = &rng;
     env.ship = &ship;
-    Piece *base = NULL;
+    env.nmax = END_CITY_PIECES_MAX;
+    Piece *base = nullptr;
     int x = chunkX * 16 + 8, z = chunkZ * 16 + 8;
     base = addEndCityPiece(&env, base, rot, x, 0, z, BASE_FLOOR);
     base = addEndCityPiece(&env, base, rot, -1, 0, -1, SECOND_FLOOR_1);
@@ -2595,7 +3108,7 @@ int getEndCityPieces(Piece *list, uint64_t seed, int chunkX, int chunkZ)
 }
 
 
-static const struct
+static constexpr struct
 {
     Pos3 offset, size;
     int skip, repeatable, weight, max;
@@ -2622,6 +3135,9 @@ fortress_info[] = {
 static
 Piece *addFortressPiece(PieceEnv *env, int typ, int x, int y, int z, int depth, int facing, int pending)
 {
+    if (*env->n >= env->nmax)
+        return nullptr;
+
     Pos3 pos = {x, y, z};
     Pos3 b0 = pos, b1 = pos;
     Pos3 d0 = fortress_info[typ].offset, d1 = fortress_info[typ].size;
@@ -2654,7 +3170,6 @@ Piece *addFortressPiece(PieceEnv *env, int typ, int x, int y, int z, int depth, 
     p->rot = facing;
     p->depth = depth;
     p->type = typ;
-    p->next = NULL;
 
     int i, n = *env->n;
     for (i = 0; i < n; i++)
@@ -2664,7 +3179,7 @@ Piece *addFortressPiece(PieceEnv *env, int typ, int x, int y, int z, int depth, 
             q->bb1.z >= p->bb0.z && q->bb0.z <= p->bb1.z &&
             q->bb1.y >= p->bb0.y && q->bb0.y <= p->bb1.y)
         {
-            return NULL; // collision
+            return nullptr; // collision
         }
     }
     // accept the piece and append it to the processing front
@@ -2672,15 +3187,14 @@ Piece *addFortressPiece(PieceEnv *env, int typ, int x, int y, int z, int depth, 
     //int queue = 0;
     if (pending)
     {
+        const int piece_index = *env->n;
         (*env->n)++;
         env->ntyp[typ]++;
         if (typ != FORTRESS_END)
             env->typlast = typ;
-        Piece *q = env->list;
-        while (q->next) {
-            q = q->next; //queue++;
+        if (env->pending) {
+            env->pending->push_back(piece_index);
         }
-        q->next = p;
     }
     //printf("[%3d] typ=%2d @(%4d %4d %4d) f=%d p=%d queue=%2d   rng:%ld\n",
     //    (*env->n-1), typ, b0.x, b0.y, b0.z, facing, pending, queue, *env->rng);
@@ -2708,7 +3222,7 @@ void extendFortress(PieceEnv *env, Piece *p, int offh, int offv, int turn, int c
         case 1: x = p->bb1.x+1;    z = p->bb0.z+offh; break;
         case 2: x = p->bb0.x+offh; z = p->bb1.z+1;    break;
         case 3: x = p->bb0.x-1;    z = p->bb0.z+offh; break;
-        default: UNREACHABLE();
+        default: std::unreachable();
         }
     } else if (turn == -1) { // left
         if (facing & 1) { x = p->bb0.x+offh; z = p->bb0.z-1;    facing = 0; }
@@ -2716,10 +3230,12 @@ void extendFortress(PieceEnv *env, Piece *p, int offh, int offv, int turn, int c
     } else if (turn == +1) { // right
         if (facing & 1) { x = p->bb0.x+offh, z = p->bb1.z+1;    facing = 2; }
         else            { x = p->bb1.x+1;    z = p->bb0.z+offh; facing = 1; }
-    } else UNREACHABLE();
+    } else std::unreachable();
 
-    if (IABS(x - env->list->bb0.x) > 112 || IABS(z - env->list->bb0.z) > 112)
-        goto L_end;
+    if (IABS(x - env->list->bb0.x) > 112 || IABS(z - env->list->bb0.z) > 112) {
+        addFortressPiece(env, FORTRESS_END, x, y, z, depth, facing, 0);
+        return;
+    }
 
     for (valid = 0, t = typ0; t < typ1; t++)
     {
@@ -2731,8 +3247,10 @@ void extendFortress(PieceEnv *env, Piece *p, int offh, int offv, int turn, int c
         weight_tot += fortress_info[t].weight;
     }
 
-    if (valid == 0 || weight_tot <= 0 || depth > 30)
-        goto L_end;
+    if (valid == 0 || weight_tot <= 0 || depth > 30) {
+        addFortressPiece(env, FORTRESS_END, x, y, z, depth, facing, valid >= 0);
+        return;
+    }
 
     for (i = 0; i < 5; i++)
     {
@@ -2747,49 +3265,55 @@ void extendFortress(PieceEnv *env, Piece *p, int offh, int offv, int turn, int c
                 continue;
             if (env->typlast == t && !fortress_info[t].repeatable)
                 break;
-            if (addFortressPiece(env, t, x, y, z, depth, facing, 1) != NULL)
+            if (addFortressPiece(env, t, x, y, z, depth, facing, 1) != nullptr)
                 return;
         }
     }
-
-L_end:
     addFortressPiece(env, FORTRESS_END, x, y, z, depth, facing, valid >= 0);
 }
 
 static
 void extendFortressPiece(PieceEnv *env, Piece *p)
 {
-    if (p->type == BRIDGE_STRAIGHT) {
-        extendFortress(env, p, 1, 3,  0, 0);
-    } else if (p->type == BRIDGE_CROSSING || p->type == FORTRESS_START) {
-        extendFortress(env, p, 8, 3,  0, 0);
-        extendFortress(env, p, 8, 3, -1, 0);
-        extendFortress(env, p, 8, 3,  1, 0);
-    } else if (p->type == BRIDGE_FORTIFIED_CROSSING) {
-        extendFortress(env, p, 2, 0,  0, 0);
-        extendFortress(env, p, 2, 0, -1, 0);
-        extendFortress(env, p, 2, 0,  1, 0);
-    } else if (p->type == BRIDGE_STAIRS) {
-        extendFortress(env, p, 2, 6,  1, 0);
-    } else if (p->type == BRIDGE_CORRIDOR_ENTRANCE) {
-        extendFortress(env, p, 5, 3,  0, 1);
-    } else if (p->type == CORRIDOR_STRAIGHT) {
-        extendFortress(env, p, 1, 0,  0, 1);
-    } else if (p->type == CORRIDOR_CROSSING) {
-        extendFortress(env, p, 1, 0,  0, 1);
-        extendFortress(env, p, 1, 0, -1, 1);
-        extendFortress(env, p, 1, 0,  1, 1);
-    } else if (p->type == CORRIDOR_TURN_RIGHT) {
-        extendFortress(env, p, 1, 0,  1, 1);
-    } else if (p->type == CORRIDOR_TURN_LEFT) {
-        extendFortress(env, p, 1, 0, -1, 1);
-    } else if (p->type == CORRIDOR_STAIRS) {
-        extendFortress(env, p, 1, 0,  0, 1);
-    } else if (p->type == CORRIDOR_T_CROSSING) {
-        int h = (p->rot == 0 || p->rot == 3) ? 5 : 1;
+    struct Step { int offh, offv, turn, corridor; };
+    struct Rule { int type; std::array<Step, 3> steps; int count; };
+    static constexpr std::array<Rule, 10> kFortressRules{{
+        {BRIDGE_STRAIGHT,           {{{1, 3,  0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}}, 1},
+        {BRIDGE_CROSSING,           {{{8, 3,  0, 0}, {8, 3,-1, 0}, {8, 3, 1, 0}}}, 3},
+        {FORTRESS_START,            {{{8, 3,  0, 0}, {8, 3,-1, 0}, {8, 3, 1, 0}}}, 3},
+        {BRIDGE_FORTIFIED_CROSSING, {{{2, 0,  0, 0}, {2, 0,-1, 0}, {2, 0, 1, 0}}}, 3},
+        {BRIDGE_STAIRS,             {{{2, 6,  1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}}, 1},
+        {BRIDGE_CORRIDOR_ENTRANCE,  {{{5, 3,  0, 1}, {0, 0, 0, 0}, {0, 0, 0, 0}}}, 1},
+        {CORRIDOR_STRAIGHT,         {{{1, 0,  0, 1}, {0, 0, 0, 0}, {0, 0, 0, 0}}}, 1},
+        {CORRIDOR_CROSSING,         {{{1, 0,  0, 1}, {1, 0,-1, 1}, {1, 0, 1, 1}}}, 3},
+        {CORRIDOR_TURN_RIGHT,       {{{1, 0,  1, 1}, {0, 0, 0, 0}, {0, 0, 0, 0}}}, 1},
+        {CORRIDOR_TURN_LEFT,        {{{1, 0, -1, 1}, {0, 0, 0, 0}, {0, 0, 0, 0}}}, 1},
+    }};
+
+    if (const auto *rule = table_lookup(kFortressRules, p->type, &Rule::type); rule != nullptr)
+    {
+        for (int i = 0; i < rule->count; i++)
+        {
+            const auto &s = rule->steps[static_cast<std::size_t>(i)];
+            extendFortress(env, p, s.offh, s.offv, s.turn, s.corridor);
+        }
+        return;
+    }
+
+    if (p->type == CORRIDOR_STAIRS)
+    {
+        extendFortress(env, p, 1, 0, 0, 1);
+        return;
+    }
+    if (p->type == CORRIDOR_T_CROSSING)
+    {
+        const auto h = (p->rot == 0 || p->rot == 3) ? 5 : 1;
         extendFortress(env, p, h, 0, -1, nextInt(env->rng, 8) != 0);
         extendFortress(env, p, h, 0,  1, nextInt(env->rng, 8) != 0);
-    } else if (p->type == CORRIDOR_NETHER_WART) {
+        return;
+    }
+    if (p->type == CORRIDOR_NETHER_WART)
+    {
         extendFortress(env, p, 5, 3,  0, 1);
         extendFortress(env, p, 5, 11, 0, 1);
     }
@@ -2811,11 +3335,13 @@ int getFortressPieces(Piece *list, int n, int mc, uint64_t seed, int chunkX, int
     }
 
     int count = 1;
-    PieceEnv env;
-    memset(&env, 0, sizeof(env));
+    std::vector<int> pending{};
+    pending.reserve(static_cast<std::size_t>(std::max(n, 0)));
+    PieceEnv env{};
     env.list = list;
     env.n = &count;
     env.rng = &rng;
+    env.pending = &pending;
     env.ntyp[0] = 1;
     env.typlast = 0;
     env.nmax = n;
@@ -2829,78 +3355,108 @@ int getFortressPieces(Piece *list, int n, int mc, uint64_t seed, int chunkX, int
     p->rot = nextInt(&rng, 4);
     p->depth = 0;
     p->type = 0;
-    p->next = NULL;
     extendFortressPiece(&env, p);
-    while (list->next)
+    while (!pending.empty())
     {
-        Piece *q = list;
-        int len = 0;
-        while (q->next)
-        {
-            q = q->next;
-            len++;
-        }
-        int i = nextInt(&rng, len);
-        for (p = list, q = list->next; i-->0; p = q, q = q->next);
-        p->next = q->next;
-        q->next = NULL;
+        const int i = nextInt(&rng, static_cast<int>(pending.size()));
+        const int qidx = pending[static_cast<std::size_t>(i)];
+        pending[static_cast<std::size_t>(i)] = pending.back();
+        pending.pop_back();
+        Piece *q = list + qidx;
         extendFortressPiece(&env, q);
     }
     return count;
 }
 
 
-uint64_t getHouseList(int *out, uint64_t seed, int chunkX, int chunkZ)
-{
-    uint64_t rng = chunkGenerateRnd(seed, chunkX, chunkZ);
-    skipNextN(&rng, 1);
+namespace {
 
-    out[HouseSmall] = nextInt(&rng, 4 - 2 + 1) + 2;
-    out[Church]     = nextInt(&rng, 1 - 0 + 1) + 0;
-    out[Library]    = nextInt(&rng, 2 - 0 + 1) + 0;
-    out[WoodHut]    = nextInt(&rng, 5 - 2 + 1) + 2;
-    out[Butcher]    = nextInt(&rng, 2 - 0 + 1) + 0;
-    out[FarmLarge]  = nextInt(&rng, 4 - 1 + 1) + 1;
-    out[FarmSmall]  = nextInt(&rng, 4 - 2 + 1) + 2;
-    out[Blacksmith] = nextInt(&rng, 1 - 0 + 1) + 0;
-    out[HouseLarge] = nextInt(&rng, 3 - 0 + 1) + 0;
+auto get_house_list_impl(std::span<int, 9> out, std::uint64_t seed, int chunk_x, int chunk_z) -> std::uint64_t
+{
+    uint64_t rng = chunkGenerateRnd(seed, chunk_x, chunk_z);
+    skipNextN(&rng, 1);
+    struct Roll { int min; int max; };
+    static constexpr std::array<Roll, 9> kRolls{{
+        {2, 4}, // HouseSmall
+        {0, 1}, // Church
+        {0, 2}, // Library
+        {2, 5}, // WoodHut
+        {0, 2}, // Butcher
+        {1, 4}, // FarmLarge
+        {2, 4}, // FarmSmall
+        {0, 1}, // Blacksmith
+        {0, 3}, // HouseLarge
+    }};
+    for (std::size_t i = 0; i < kRolls.size(); ++i)
+    {
+        const auto &roll = kRolls[i];
+        out[i] = nextInt(&rng, roll.max - roll.min + 1) + roll.min;
+    }
 
     return rng;
+}
+
+} // namespace
+
+uint64_t getHouseList(int *out, uint64_t seed, int chunkX, int chunkZ)
+{
+    return get_house_list_impl(std::span<int, 9>{out, 9}, seed, chunkX, chunkZ);
 }
 
 
 void getFixedEndGateways(int mc, uint64_t seed, Pos src[20])
 {
+    get_fixed_end_gateways_impl(mc, seed, std::span<Pos, 20>{src, 20});
+}
+
+namespace {
+
+auto get_fixed_end_gateways_impl(int mc, std::uint64_t seed, std::span<Pos, 20> out) -> void
+{
     (void) mc;
-    static const Pos fixed[20] = {
+    static constexpr std::array<Pos, 20> fixed{{
         { 96,  0}, { 91, 29}, { 77, 56}, { 56, 77}, { 29, 91},
         { -1, 96}, {-30, 91}, {-57, 77}, {-78, 56}, {-92, 29},
         {-96, -1}, {-92,-30}, {-78,-57}, {-57,-78}, {-30,-92},
         {  0,-96}, { 29,-92}, { 56,-78}, { 77,-57}, { 91,-30},
-    };
+    }};
 
-    uint8_t order[] = {
+    std::array<std::uint8_t, 20> order{{
         19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
-    };
+    }};
 
-    int i;
     uint64_t rng = 0;
     setSeed(&rng, seed);
 
-    for (i = 0; i < 20; i++)
+    for (int i = 0; i < 20; i++)
     {
-        uint8_t j = 19 - nextInt(&rng, 20-i);
-        uint8_t tmp = order[i];
+        const auto j = static_cast<std::uint8_t>(19 - nextInt(&rng, 20 - i));
+        const auto tmp = order[static_cast<std::size_t>(i)];
         order[i] = order[j];
         order[j] = tmp;
     }
 
-    for (i = 0; i < 20; i++)
-        src[i] = fixed[ order[i] ];
+    for (int i = 0; i < 20; i++)
+        out[static_cast<std::size_t>(i)] = fixed[order[static_cast<std::size_t>(i)]];
 }
+
+} // namespace
 
 Pos getLinkedGatewayChunk(const EndNoise *en, const SurfaceNoise *sn, uint64_t seed,
     Pos src, Pos *dst)
+{
+    return get_linked_gateway_chunk_impl(en, sn, seed, src, dst);
+}
+
+namespace {
+
+auto get_linked_gateway_chunk_impl(
+    const EndNoise *en,
+    const SurfaceNoise *sn,
+    std::uint64_t seed,
+    Pos src,
+    Pos *dst
+) -> Pos
 {
     double invr = 1.0 / sqrt(src.x * src.x + src.z * src.z);
     double dx = src.x * invr;
@@ -2949,7 +3505,7 @@ Pos getLinkedGatewayChunk(const EndNoise *en, const SurfaceNoise *sn, uint64_t s
     return c;
 }
 
-Pos getLinkedGatewayPos(const EndNoise *en, const SurfaceNoise *sn, uint64_t seed, Pos src)
+auto get_linked_gateway_pos_impl(const EndNoise *en, const SurfaceNoise *sn, std::uint64_t seed, Pos src) -> Pos
 {
     float y[33*33]; // buffer for [16][16] and [33][33]
     int ymin = 0;
@@ -3000,7 +3556,7 @@ Pos getLinkedGatewayPos(const EndNoise *en, const SurfaceNoise *sn, uint64_t see
     Pos sp = { dst.x-16, dst.z-16 };
     // checking end islands is much cheaper than surface height generation, so
     // we can also skip surface generation lower than the highest island around
-    memset(y, 0, sizeof(float)*33*33);
+    std::fill(std::begin(y), std::end(y), 0.0f);
     mapEndIslandHeight(y, en, seed, sp.x, sp.z, 33, 33, 1);
     for (i = 0; i < 33*33; i++)
         if (y[i] > ymin)
@@ -3023,6 +3579,13 @@ Pos getLinkedGatewayPos(const EndNoise *en, const SurfaceNoise *sn, uint64_t see
     }
 
     return dst;
+}
+
+} // namespace
+
+Pos getLinkedGatewayPos(const EndNoise *en, const SurfaceNoise *sn, uint64_t seed, Pos src)
+{
+    return get_linked_gateway_pos_impl(en, sn, seed, src);
 }
 
 
@@ -3065,7 +3628,8 @@ int monteCarloBiomes(
     if (r.sy == 0)
         r.sy = 1;
 
-    struct touple { int x, y, z; } *buf = 0;
+    struct tuple_t { int x, y, z; };
+    std::vector<tuple_t> buf{};
     size_t n = (size_t)r.sx*r.sy*r.sz;
 
     // z-score (i.e. probit, or standard deviations) for the confidence
@@ -3083,9 +3647,9 @@ int monteCarloBiomes(
     // we can avoid repeated samples by shuffling a buffer.
     // (TODO: adjust for hypergeometric distribution?)
     if (n < 4 * wn && n < INT_MAX)
-        buf = (struct touple*) malloc(n * sizeof(*buf));
+        buf.resize(n);
 
-    if (buf)
+    if (!buf.empty())
     {
         size_t idx = 0;
         int i, k, j;
@@ -3095,9 +3659,7 @@ int monteCarloBiomes(
             {
                 for (i = 0; i < r.sx; i++)
                 {
-                    buf[idx].x = i;
-                    buf[idx].y = k;
-                    buf[idx].z = j;
+                    buf[idx] = tuple_t{.x = i, .y = k, .z = j};
                     idx++;
                 }
             }
@@ -3112,8 +3674,8 @@ int monteCarloBiomes(
     // iterate over the area in a random order
     for (i = 0; i < n; i++)
     {
-        struct touple t;
-        if (buf)
+        tuple_t t{};
+        if (!buf.empty())
         {
             int j = n - i;
             int k = nextInt(rng, j);
@@ -3167,8 +3729,6 @@ int monteCarloBiomes(
             break;
         }
     }
-    if (buf)
-        free(buf);
     return ret;
 }
 
@@ -3182,7 +3742,7 @@ void setupBiomeFilter(
 {
     int i, id;
 
-    memset(bf, 0, sizeof(*bf));
+    *bf = BiomeFilter{};
     bf->flags = flags;
 
     // The matchany set is built from the intersection of each member,
@@ -3635,11 +4195,13 @@ int checkForBiomes(
 
     if (g->mc <= MC_B1_7)
     {   // TODO: optimize
-        int *ids;
-        if (cache)
-            ids = cache;
-        else
-            ids = allocCache(g, r);
+        std::vector<int> owned_ids;
+        int *ids = cache;
+        if (ids == nullptr)
+        {
+            owned_ids.resize(getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz), 0);
+            ids = owned_ids.data();
+        }
 
         if (g->dim != dim || g->seed != seed)
             applySeed(g, dim, seed);
@@ -3648,9 +4210,6 @@ int checkForBiomes(
         uint64_t b = 0;
         for (i = 0; i < r.sx*r.sz; i++)
             b |= (1ULL << ids[i]);
-
-        if (ids != cache)
-            free(ids);
 
         int match_exc = (filter->biomeToExcl) == 0;
         int match_any = (filter->biomeToPick) == 0;
@@ -3676,11 +4235,14 @@ int checkForBiomes(
         return ret;
     }
 
-    int *ids, id;
-    if (cache)
-        ids = cache;
-    else
-        ids = allocCache(g, r);
+    int id;
+    std::vector<int> owned_ids;
+    int *ids = cache;
+    if (ids == nullptr)
+    {
+        owned_ids.resize(getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz), 0);
+        ids = owned_ids.data();
+    }
 
     if (g->dim != dim || g->seed != seed)
     {
@@ -3702,11 +4264,19 @@ int checkForBiomes(
     info->stop = stop;
 
     ret = 0;
-    memset(ids, -1, r.sx * r.sz * sizeof(int));
+    std::fill_n(ids, static_cast<std::size_t>(r.sx * r.sz), -1);
 
-    int n = r.sx*r.sy*r.sz;
+    struct Tuple
+    {
+        int i;
+        int x;
+        int y;
+        int z;
+    };
+
+    const int n = r.sx*r.sy*r.sz;
     int trials = n;
-    struct touple { int i, x, y, z; } *buf = NULL;
+    bool sample_biomes = true;
 
     if (r.scale == 4 && r.sx * r.sz > 64 && dim == DIM_OVERWORLD)
     {
@@ -3735,74 +4305,79 @@ int checkForBiomes(
         }
         while (0);
         if (err || (stop && *stop) || (filter->flags & BF_APPROX))
-            goto L_end;
+            sample_biomes = false;
     }
 
-    // We'll shuffle the coordinates so we'll generate the biomes in a
-    // stochasitc mannor.
-    buf = (struct touple*) malloc(n * sizeof(*buf));
-
-    id = 0;
-    for (k = 0; k < r.sy; k++)
+    std::vector<Tuple> buf;
+    if (sample_biomes)
     {
-        for (j = 0; j < r.sz; j++)
+        // We'll shuffle the coordinates so we'll generate the biomes in a
+        // stochastic manner.
+        buf.resize(static_cast<std::size_t>(n));
+
+        id = 0;
+        for (k = 0; k < r.sy; k++)
         {
-            for (i = 0; i < r.sx; i++)
+            for (j = 0; j < r.sz; j++)
             {
-                buf[id].i = id;
-                buf[id].x = i;
-                buf[id].y = k;
-                buf[id].z = j;
-                id++;
+                for (i = 0; i < r.sx; i++)
+                {
+                    buf[static_cast<std::size_t>(id)] = Tuple{
+                        .i = id,
+                        .x = i,
+                        .y = k,
+                        .z = j,
+                    };
+                    id++;
+                }
             }
         }
-    }
 
-    // Determine a number of trials that gives a decent chance to sample all
-    // the biomes that are present, assuming a completely random and
-    // independent biome distribution. (This is actually not at all the case.)
-    if (filter->flags & BF_APPROX)
-    {
-        int t = 400 + (int) sqrt(n);
-        if (trials > t)
-            trials = t;
-    }
-
-    for (i = 0; i < trials; i++)
-    {
-        struct touple t;
-        j = n - i;
-        k = rand() % j;
-        t = buf[k];
-        if (k != j-1)
+        // Determine a number of trials that gives a decent chance to sample all
+        // the biomes that are present, assuming a completely random and
+        // independent biome distribution. (This is actually not at all the case.)
+        if (filter->flags & BF_APPROX)
         {
-            buf[k] = buf[j-1];
-            buf[j-1] = t;
+            int t = 400 + (int) sqrt(n);
+            if (trials > t)
+                trials = t;
         }
 
-        if (stop && *stop)
-            break;
-        if (t.y == 0 && info->ids[t.i] != -1)
-            continue;
-        id = getBiomeAt(g, r.scale, r.x+t.x, r.y+t.y, r.z+t.z);
-        info->ids[t.i] = id;
-        if (id < 128) info->b |= (1ULL << id);
-        else info->m |= (1ULL << (id-128));
+        for (i = 0; i < trials; i++)
+        {
+            const int remaining = n - i;
+            const int swap_idx = rand() % remaining;
+            auto current = buf[static_cast<std::size_t>(swap_idx)];
+            if (swap_idx != remaining-1)
+            {
+                buf[static_cast<std::size_t>(swap_idx)] =
+                    buf[static_cast<std::size_t>(remaining-1)];
+                buf[static_cast<std::size_t>(remaining-1)] = current;
+            }
 
-        // check if we know enough to yield a result
-        int match_exc = (info->bexc|info->mexc) == 0;
-        int match_any = (info->bany|info->many) == 0;
-        int match_req = (info->breq|info->mreq) == 0;
-        if (!match_exc && ((info->b & info->bexc) || (info->m & info->mexc)))
-            break; // encountered an excluded biome
-        match_any |= ((info->b & info->bany) || (info->m & info->many));
-        match_req |= ((info->b & info->breq) == info->breq &&
-                      (info->m & info->mreq) == info->mreq);
-        if (match_exc && match_any && match_req)
-            break; // all conditions met
+            if (stop && *stop)
+                break;
+            if (current.y == 0 && info->ids[current.i] != -1)
+                continue;
+            id = getBiomeAt(g, r.scale, r.x+current.x, r.y+current.y, r.z+current.z);
+            info->ids[current.i] = id;
+            if (id < 128) info->b |= (1ULL << id);
+            else info->m |= (1ULL << (id-128));
+
+            // check if we know enough to yield a result
+            int match_exc = (info->bexc|info->mexc) == 0;
+            int match_any = (info->bany|info->many) == 0;
+            int match_req = (info->breq|info->mreq) == 0;
+            if (!match_exc && ((info->b & info->bexc) || (info->m & info->mexc)))
+                break; // encountered an excluded biome
+            match_any |= ((info->b & info->bany) || (info->m & info->many));
+            match_req |= ((info->b & info->breq) == info->breq &&
+                          (info->m & info->mreq) == info->mreq);
+            if (match_exc && match_any && match_req)
+                break; // all conditions met
+        }
     }
 
-L_end:
     if (stop && *stop)
     {
         ret = 0;
@@ -3818,11 +4393,6 @@ L_end:
                       (info->m & info->mreq) == info->mreq);
         ret = (match_exc && match_any && match_req);
     }
-
-    if (buf)
-        free(buf);
-    if (ids != cache)
-        free(ids);
     return ret;
 }
 
@@ -3894,21 +4464,26 @@ static int mapFilterMushroom(const Layer * l, int * out, int x, int z, int w, in
     if (w*h < 100 && (f->bf->majorToFind & (1ULL << mushroom_fields)))
     {
         uint64_t ss = l->startSeed;
-        uint64_t cs;
+        bool has_proto_mushroom = false;
 
         for (j = 0; j < h; j++)
         {
             for (i = 0; i < w; i++)
             {
-                cs = getChunkSeed(ss, i+x, j+z);
+                const uint64_t cs = getChunkSeed(ss, i+x, j+z);
                 if (mcFirstIsZero(cs, 100))
-                    goto L_generate;
+                {
+                    has_proto_mushroom = true;
+                    break;
+                }
             }
+            if (has_proto_mushroom)
+                break;
         }
-        return M_STOP;
+        if (!has_proto_mushroom)
+            return M_STOP;
     }
 
-L_generate:
     err = f->map(l, out, x, z, w, h);
     if unlikely(err != 0)
         return err;
@@ -4162,9 +4737,11 @@ int checkForBiomesAtLayer(
         )
 {
     Layer *l;
-    int *ids;
+    int *ids = cache;
     int ret, err;
-    int memsiz, mem1x1;
+    int memsiz = 0;
+    int mem1x1;
+    std::vector<int> owned_ids;
 
     if (filter->flags & BF_APPROX) // TODO: protoCheck for 1.6-
     {
@@ -4211,6 +4788,7 @@ int checkForBiomesAtLayer(
         if (filter->majorToFind & (1ULL << mushroom_fields))
         {
             ss = getStartSeed(seed, g->layers[L_MUSHROOM_256].layerSalt);
+            bool has_proto_mushroom = false;
 
             for (j = z0; j <= z1; j++)
             {
@@ -4218,12 +4796,17 @@ int checkForBiomesAtLayer(
                 {
                     cs = getChunkSeed(ss, i, j);
                     if (mcFirstIsZero(cs, 100))
-                        goto L_has_proto_mushroom;
+                    {
+                        has_proto_mushroom = true;
+                        break;
+                    }
                 }
+                if (has_proto_mushroom)
+                    break;
             }
-            return 0;
+            if (!has_proto_mushroom)
+                return 0;
         }
-L_has_proto_mushroom:
 
         potential = 0;
         required = filter->majorToFind & (
@@ -4266,15 +4849,11 @@ L_has_proto_mushroom:
     }
 
     l = g->layers;
-    if (cache)
-    {
-        memsiz = 0;
-        ids = cache;
-    }
-    else
+    if (ids == nullptr)
     {
         memsiz = getMinLayerCacheSize(entry, w, h);
-        ids = (int*) calloc(memsiz, sizeof(int));
+        owned_ids.resize(static_cast<std::size_t>(memsiz), 0);
+        ids = owned_ids.data();
     }
 
     if ((filter->biomeToExcl | filter->biomeToExclM) && w*h > 1)
@@ -4296,11 +4875,7 @@ L_has_proto_mushroom:
             if (!err) err = testExclusion(entry, ids, x+w-1, z,     filter);
         }
         if (err)
-        {
-            if (cache == nullptr)
-                free(ids);
             return 0;
-        }
     }
 
     filter_data_t fd[9];
@@ -4354,9 +4929,6 @@ L_has_proto_mushroom:
         ret = 2;
     }
 
-    if (cache == nullptr)
-        free(ids);
-
     return ret;
 }
 
@@ -4389,15 +4961,15 @@ int checkForTemps(LayerStack *g, uint64_t seed, int x, int z, int w, int h, cons
 
     Layer *l = &g->layers[L_SPECIAL_1024];
     int ccnt[9] = {0};
-    int *area = (int*) calloc(getMinLayerCacheSize(l, w, h), sizeof(int));
+    std::vector<int> area(getMinLayerCacheSize(l, w, h), 0);
     int ret = 1;
 
     setLayerSeed(l, seed);
-    genArea(l, area, x, z, w, h);
+    genArea(l, area.data(), x, z, w, h);
 
     for (i = 0; i < w*h; i++)
     {
-        int id = area[i];
+        int id = area[static_cast<std::size_t>(i)];
         int t = id & 0xff;
         if (id != t && t != Freezing)
             t += Special;
@@ -4412,7 +4984,6 @@ int checkForTemps(LayerStack *g, uint64_t seed, int x, int z, int w, int h, cons
         }
     }
 
-    free(area);
     return ret;
 }
 
@@ -4430,11 +5001,9 @@ static
 int floodFillGen(struct locate_info_t *info, int i, int j, Pos *p)
 {
     typedef struct { int i, j, d; } entry_t;
-    entry_t *queue = (entry_t*) malloc(info->r.sx*info->r.sz * sizeof(*queue));
+    std::vector<entry_t> queue(static_cast<std::size_t>(info->r.sx) * static_cast<std::size_t>(info->r.sz));
     int qn = 1;
-    queue->i = i;
-    queue->j = j;
-    queue->d = 0;
+    queue[0] = entry_t{.i = i, .j = j, .d = 0};
     int64_t sumx = 0;
     int64_t sumz = 0;
     int n = 0;
@@ -4442,12 +5011,11 @@ int floodFillGen(struct locate_info_t *info, int i, int j, Pos *p)
     {
         if (info->stop && *info->stop)
         {
-            free(queue);
             return 0;
         }
-        int d = queue[qn].d;
-        i = queue[qn].i;
-        j = queue[qn].j;
+        int d = queue[static_cast<std::size_t>(qn)].d;
+        i = queue[static_cast<std::size_t>(qn)].i;
+        j = queue[static_cast<std::size_t>(qn)].j;
         int k = j * info->r.sx + i;
         int id = info->ids[k];
         if (id == INT_MAX)
@@ -4477,10 +5045,9 @@ int floodFillGen(struct locate_info_t *info, int i, int j, Pos *p)
                 continue;
             if (info->ids[j * info->r.sx + i] == INT_MAX)
                 continue;
-            queue[qn++] = next[k];
+            queue[static_cast<std::size_t>(qn++)] = next[k];
         }
     }
-    free(queue);
     if (n)
     {
         p->x = (int) round((sumx / (double)n + 0.5) * info->r.scale);
@@ -4496,14 +5063,13 @@ int getBiomeCenters(Pos *pos, int *siz, int nmax, Generator *g, Range r,
     if (minsiz <= 0)
         minsiz = 1;
     int i, j, k, n = 0;
-    int *ids = (int*) malloc(r.sx*r.sz * sizeof(int));
-    memset(ids, -1, r.sx*r.sz * sizeof(int));
+    std::vector<int> ids(static_cast<std::size_t>(r.sx) * static_cast<std::size_t>(r.sz), -1);
     if (tol <= 0)
         tol = 1;
     int step = tol;
     struct locate_info_t info;
     info.g = g;
-    info.ids = ids;
+    info.ids = ids.data();
     info.r = r;
     info.stop = stop;
     info.match = match;
@@ -4541,7 +5107,7 @@ int getBiomeCenters(Pos *pos, int *siz, int nmax, Generator *g, Range r,
                     int p = 10000 * sampleDoublePerlin(dpn, px, 0, pz);
                     if (p < plim[0] || p > plim[1])
                     {
-                        ids[j*r.sx + i] = -2;
+                        ids[static_cast<std::size_t>(j*r.sx + i)] = -2;
                         break;
                     }
                 }
@@ -4566,7 +5132,7 @@ int getBiomeCenters(Pos *pos, int *siz, int nmax, Generator *g, Range r,
         //applySeed(g, 0, g->seed);
 
         Range tr = { r.scale, 0, 0, ts, ts, 0, 1 };
-        int *cache = allocCache(g, r);
+        std::vector<int> cache(getMinCacheSize(g, tr.scale, tr.sx, tr.sy, tr.sz), 0);
 
         for (tj = 0; tj < th; tj++)
         {
@@ -4576,7 +5142,7 @@ int getBiomeCenters(Pos *pos, int *siz, int nmax, Generator *g, Range r,
                     break;
                 tr.x = (tx+ti) * ts;
                 tr.z = (tz+tj) * ts;
-                if (checkForBiomes(g, cache, tr, DIM_OVERWORLD, g->seed,
+                if (checkForBiomes(g, cache.data(), tr, DIM_OVERWORLD, g->seed,
                     &bf, stop) != 1)
                 {
                     continue;
@@ -4591,12 +5157,11 @@ int getBiomeCenters(Pos *pos, int *siz, int nmax, Generator *g, Range r,
                         int ii = tr.x + i - r.x;
                         if (ii < 0 || ii >= r.sx)
                             continue;
-                        ids[jj*r.sx + ii] = cache[j*tr.sx + i];
+                        ids[static_cast<std::size_t>(jj*r.sx + ii)] = cache[static_cast<std::size_t>(j*tr.sx + i)];
                     }
                 }
             }
         }
-        free(cache);
     }
 
     applySeed(g, DIM_OVERWORLD, g->seed);
@@ -4606,7 +5171,7 @@ int getBiomeCenters(Pos *pos, int *siz, int nmax, Generator *g, Range r,
         {
             if (stop && *stop)
                 break;
-            if (ids[j*r.sx + i] != match)
+            if (ids[static_cast<std::size_t>(j*r.sx + i)] != match)
                 continue;
             Pos center;
             int area = floodFillGen(&info, i, j, &center);
@@ -4615,14 +5180,10 @@ int getBiomeCenters(Pos *pos, int *siz, int nmax, Generator *g, Range r,
                 pos[n] = center;
                 if (siz) siz[n] = area;
                 if (++n >= nmax)
-                    goto L_end;
+                    return n;
             }
         }
     }
-
-L_end:
-    free(ids);
-
     return n;
 }
 
@@ -4798,7 +5359,10 @@ static void _genPotential(struct _gp_args *a, int layer, int id)
     switch (layer)
     {
     case L_SPECIAL_1024: // biomes added in (L_SPECIAL_1024, L_MUSHROOM_256]
-        if (mc <= MC_1_6) goto L_bad_layer;
+        if (mc <= MC_1_6) {
+            printf("genPotential() bad layer %d for version\n", layer);
+            return;
+        }
         if (id == Oceanic)
             _genPotential(a, L_MUSHROOM_256, mushroom_fields);
         if ((id & ~0xf00) >= Oceanic && (id & ~0xf00) <= Freezing)
@@ -4832,7 +5396,10 @@ static void _genPotential(struct _gp_args *a, int layer, int id)
         break;
 
     case L_DEEP_OCEAN_256: // biomes added in (L_DEEP_OCEAN_256, L_BIOME_256]
-        if (mc <= MC_1_6) goto L_bad_layer;
+        if (mc <= MC_1_6) {
+            printf("genPotential() bad layer %d for version\n", layer);
+            return;
+        }
         switch (id & ~0xf00)
         {
         case Warm:
@@ -4880,7 +5447,10 @@ static void _genPotential(struct _gp_args *a, int layer, int id)
     case L_BIOME_256: // biomes added in (L_BIOME_256, L_BIOME_EDGE_64]
     case L_BAMBOO_256:
     case L_ZOOM_64:
-        if (mc <= MC_1_13 && layer == L_BAMBOO_256) goto L_bad_layer;
+        if (mc <= MC_1_13 && layer == L_BAMBOO_256) {
+            printf("genPotential() bad layer %d for version\n", layer);
+            return;
+        }
         if (mc >= MC_1_7) {
             if (mc >= MC_1_14 && id == jungle)
                 _genPotential(a, L_BIOME_EDGE_64, bamboo_jungle);
@@ -4901,7 +5471,10 @@ static void _genPotential(struct _gp_args *a, int layer, int id)
         // fallthrough
 
     case L_BIOME_EDGE_64: // biomes added in (L_BIOME_EDGE_64, L_HILLS_64]
-        if (mc <= MC_1_6 && layer == L_BIOME_EDGE_64) goto L_bad_layer;
+        if (mc <= MC_1_6 && layer == L_BIOME_EDGE_64) {
+            printf("genPotential() bad layer %d for version\n", layer);
+            return;
+        }
         if (!isShallowOcean(id) && getMutated(mc, id) > 0)
              _genPotential(a, L_HILLS_64, getMutated(mc, id));
         switch (id)
@@ -4993,7 +5566,10 @@ static void _genPotential(struct _gp_args *a, int layer, int id)
         break;
 
     case L_SUNFLOWER_64: // biomes added in (L_SUNFLOWER_64, L_SHORE_16] 1.7+
-        if (mc <= MC_1_6) goto L_bad_layer;
+        if (mc <= MC_1_6) {
+            printf("genPotential() bad layer %d for version\n", layer);
+            return;
+        }
         // fallthrough
     case L_ZOOM_16:
         if (mc <= MC_1_0 && layer == L_ZOOM_16) {
@@ -5049,7 +5625,10 @@ static void _genPotential(struct _gp_args *a, int layer, int id)
         break;
 
     case L_OCEAN_MIX_4:
-        if (mc <= MC_1_12) goto L_bad_layer;
+        if (mc <= MC_1_12) {
+            printf("genPotential() bad layer %d for version\n", layer);
+            return;
+        }
         // fallthrough
 
     case L_VORONOI_1:
@@ -5059,11 +5638,6 @@ static void _genPotential(struct _gp_args *a, int layer, int id)
 
     default:
         printf("genPotential() not implemented for layer %d\n", layer);
-    }
-    if (0)
-    {
-    L_bad_layer:
-        printf("genPotential() bad layer %d for version\n", layer);
     }
 }
 
@@ -5124,6 +5698,7 @@ double getParaDescent(const DoublePerlinNoise *para, double factor,
         if (dirx)
         {
             dira = (int)(dirx * alpha * (v - vd));
+            bool jumped = false;
             if (abs(dira) > 2 && i+dira >= 0 && i+dira < w)
             {   // try jumping by more than 1
                 va = factor * sampleDoublePerlin(para, x+i+dira, 0, z+j);
@@ -5131,12 +5706,14 @@ double getParaDescent(const DoublePerlinNoise *para, double factor,
                 {
                     i += dira;
                     v = va;
-                    goto L_x_end;
+                    jumped = true;
                 }
             }
-            v = vd;
-            i += dirx;
-        L_x_end:
+            if (!jumped)
+            {
+                v = vd;
+                i += dirx;
+            }
             if (func)
             {
                 if (func(data, x+i, z+j, factor < 0 ? -v : v))
@@ -5160,6 +5737,7 @@ double getParaDescent(const DoublePerlinNoise *para, double factor,
         if (dirz)
         {
             dira = (int)(dirz * alpha * (v - vd));
+            bool jumped = false;
             if (abs(dira) > 2 && j+dira >= 0 && j+dira < h)
             {   // try jumping by more than 1
                 va = factor * sampleDoublePerlin(para, x+i, 0, z+j+dira);
@@ -5167,12 +5745,14 @@ double getParaDescent(const DoublePerlinNoise *para, double factor,
                 {
                     j += dira;
                     v = va;
-                    goto L_z_end;
+                    jumped = true;
                 }
             }
-            j += dirz;
-            v = vd;
-        L_z_end:
+            if (!jumped)
+            {
+                j += dirz;
+                v = vd;
+            }
             if (func)
             {
                 if (func(data, x+i, z+j, factor < 0 ? -v : v))
@@ -5216,10 +5796,11 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
     const double factor = 10000;
     const double perlin_grad = 2.0 * 1.875; // max perlin noise gradient
     double v, lmin, lmax, dr, vdif, small_regime;
-    char *skip = NULL;
+    std::vector<char> skip{};
     int i, j, step, ii, jj, ww, hh, skipsiz;
     int maxrad, maxiter;
     int err = 1;
+    const auto is_invalid = [](double value) { return std::isnan(value); };
 
     if (pmin) *pmin = DBL_MAX;
     if (pmax) *pmax = -DBL_MAX;
@@ -5267,14 +5848,16 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
             {
                 v = getParaDescent(para, +factor, x, z, w, h, i, j,
                     step, step, dr, data, func);
-                if (v != v) goto L_end;
+                if (is_invalid(v))
+                    return err;
                 if (v < *pmin) *pmin = v;
             }
             if (pmax)
             {
                 v = -getParaDescent(para, -factor, x, z, w, h, i, j,
                     step, step, dr, data, func);
-                if (v != v) goto L_end;
+                if (is_invalid(v))
+                    return err;
                 if (v > *pmax) *pmax = v;
             }
         }
@@ -5311,12 +5894,12 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
     maxiter = step*2;
     ww = (w+step-1) / step;
     hh = (h+step-1) / step;
-    skipsiz = (ww+1) * (hh+1) * sizeof(*skip);
-    skip = (char*) malloc(skipsiz);
+    skipsiz = (ww+1) * (hh+1);
+    skip.resize(static_cast<std::size_t>(skipsiz));
 
     if (pmin)
     {   // look for minima
-        memset(skip, 0, skipsiz);
+        std::fill(skip.begin(), skip.end(), 0);
 
         for (jj = 0; jj <= hh; jj++)
         {
@@ -5324,7 +5907,7 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
             for (ii = 0; ii <= ww; ii++)
             {
                 i = ii * step; if (i >= w) i = w-1;
-                if (skip[jj*ww+ii]) continue;
+                if (skip[static_cast<std::size_t>(jj*ww+ii)]) continue;
 
                 v = factor * sampleDoublePerlin(para, x+i, 0, z+j);
                 if (func)
@@ -5333,7 +5916,7 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
                     if (e)
                     {
                         err = e;
-                        goto L_end;
+                        return err;
                     }
                 }
                 // not looking for maxima yet, but update the bounds anyway
@@ -5349,14 +5932,15 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
                         for (a = -r+1; a < r; a++)
                         {
                             if (a+ii < 0 || a+ii >= ww) continue;
-                            skip[(b+jj)*ww + (a+ii)] = 1;
+                            skip[static_cast<std::size_t>((b+jj)*ww + (a+ii))] = 1;
                         }
                     }
                     continue;
                 }
                 v = getParaDescent(para, +factor, x, z, w, h, i, j,
                     maxrad, maxiter, dr, data, func);
-                if (v != v) goto L_end;
+                if (is_invalid(v))
+                    return err;
                 if (v < *pmin) *pmin = v;
             }
         }
@@ -5364,7 +5948,7 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
 
     if (pmax)
     {   // look for maxima
-        memset(skip, 0, skipsiz);
+        std::fill(skip.begin(), skip.end(), 0);
 
         for (jj = 0; jj <= hh; jj++)
         {
@@ -5372,7 +5956,7 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
             for (ii = 0; ii <= ww; ii++)
             {
                 i = ii * step; if (i >= w) i = w-1;
-                if (skip[jj*ww+ii]) continue;
+                if (skip[static_cast<std::size_t>(jj*ww+ii)]) continue;
 
                 v = -factor * sampleDoublePerlin(para, x+i, 0, z+j);
                 if (func)
@@ -5381,7 +5965,7 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
                     if (e)
                     {
                         err = e;
-                        goto L_end;
+                        return err;
                     }
                 }
 
@@ -5395,23 +5979,21 @@ int getParaRange(const DoublePerlinNoise *para, double *pmin, double *pmax,
                         for (a = -r+1; a < r; a++)
                         {
                             if (a+ii < 0 || a+ii >= ww) continue;
-                            skip[(b+jj)*ww + (a+ii)] = 1;
+                            skip[static_cast<std::size_t>((b+jj)*ww + (a+ii))] = 1;
                         }
                     }
                     continue;
                 }
                 v = -getParaDescent(para, -factor, x, z, w, h, i, j,
                     maxrad, maxiter, dr, data, func);
-                if (v != v) goto L_end;
+                if (is_invalid(v))
+                    return err;
                 if (v > *pmax) *pmax = v;
             }
         }
     }
 
     err = 0;
-L_end:
-    if (skip)
-        free(skip);
     return err;
 }
 
@@ -5510,7 +6092,7 @@ const int *getBiomeParaExtremes(int mc)
         return extremes_beta;
     }
     if (mc <= MC_1_17)
-        return NULL;
+        return nullptr;
     static const int extremes[] = {
         -4501, 5500,
         -3500, 6999,
@@ -5530,7 +6112,7 @@ const int *getBiomeParaExtremes(int mc)
 const int *getBiomeParaLimits(int mc, int id)
 {
     if (mc <= MC_1_17)
-        return NULL;
+        return nullptr;
     int i;
     if (mc > MC_1_21_3)
     {
@@ -5561,7 +6143,7 @@ const int *getBiomeParaLimits(int mc, int id)
         if (g_biome_para_range_18[i][0] == id)
             return &g_biome_para_range_18[i][1];
     }
-    return NULL;
+    return nullptr;
 }
 
 /**
@@ -5571,7 +6153,7 @@ const int *getBiomeParaLimits(int mc, int id)
 void getPossibleBiomesForLimits(char ids[256], int mc, int limits[6][2])
 {
     int i, j;
-    memset(ids, 0, 256*sizeof(char));
+    std::fill_n(ids, static_cast<std::size_t>(256), '\0');
 
     for (i = 0; i < 256; i++)
     {
@@ -5594,7 +6176,7 @@ void getPossibleBiomesForLimits(char ids[256], int mc, int limits[6][2])
 int getLargestRec(int match, const int *ids, int sx, int sz, Pos *p0, Pos *p1)
 {
     typedef struct { int n, j, w; } entry_t;
-    entry_t *meta = (entry_t*) calloc(sx > sz ? sx : sz, sizeof(*meta));
+    std::vector<entry_t> meta(static_cast<std::size_t>(sx > sz ? sx : sz), entry_t{});
     int i, j, w, m, ret;
     ret = m = 0;
 
@@ -5612,8 +6194,8 @@ int getLargestRec(int match, const int *ids, int sx, int sz, Pos *p0, Pos *p1)
             int n = meta[j].n;
             if (n > w)
             {
-                meta[m].j = j;
-                meta[m].w = w;
+                meta[static_cast<std::size_t>(m)].j = j;
+                meta[static_cast<std::size_t>(m)].w = w;
                 m++;
                 w = n;
             }
@@ -5621,7 +6203,7 @@ int getLargestRec(int match, const int *ids, int sx, int sz, Pos *p0, Pos *p1)
                 continue;
             do
             {
-                entry_t e = meta[--m];
+                entry_t e = meta[static_cast<std::size_t>(--m)];
                 int area = w * (j - e.j);
                 if (area > ret)
                 {
@@ -5636,6 +6218,5 @@ int getLargestRec(int match, const int *ids, int sx, int sz, Pos *p0, Pos *p1)
                 m++;
         }
     }
-    free(meta);
     return ret;
 }

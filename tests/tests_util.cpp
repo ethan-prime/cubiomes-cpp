@@ -1,4 +1,5 @@
 #include "util.hpp"
+#include "legacy_util.hpp"
 #include "biomes.hpp"
 #include "finders.hpp"
 

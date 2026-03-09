@@ -1,4 +1,5 @@
 #include "generator.hpp"
+#include "legacy_generator.hpp"
 #include "layers.hpp"
 
 #include <algorithm>

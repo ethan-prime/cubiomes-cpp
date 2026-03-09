@@ -1,4 +1,5 @@
 #include "cpp_api.hpp"
+#include "legacy_generator.hpp"
 
 #include <cstdlib>
 #include <stdexcept>

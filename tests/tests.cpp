@@ -1,5 +1,7 @@
 #include "finders.hpp"
 #include "util.hpp"
+#include "legacy_util.hpp"
+#include "legacy_generator.hpp"
 
 #include <sys/time.h>
 #include <time.h>

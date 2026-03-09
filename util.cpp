@@ -143,6 +143,55 @@ inline auto parse_seed_line(std::string_view line, std::uint64_t &seed) -> bool
 
 } // namespace cubiomes::detail
 
+namespace {
+
+class PpmWriter final {
+public:
+    explicit PpmWriter(std::string_view path)
+    {
+        const std::string path_string{path};
+        fp_ = std::fopen(path_string.c_str(), "wb");
+    }
+
+    PpmWriter(const PpmWriter&) = delete;
+    auto operator=(const PpmWriter&) -> PpmWriter& = delete;
+
+    ~PpmWriter()
+    {
+        if (fp_ != nullptr) {
+            std::fclose(fp_);
+        }
+    }
+
+    auto write(
+        std::span<const std::uint8_t> pixels,
+        std::uint32_t sx,
+        std::uint32_t sy
+    ) -> cubiomes::cpp::SavePpmStatus
+    {
+        if (fp_ == nullptr) {
+            return cubiomes::cpp::SavePpmStatus::OpenFailed;
+        }
+
+        const auto expected_pixels_len =
+            3ULL * static_cast<std::size_t>(sx) * static_cast<std::size_t>(sy);
+        if (pixels.size() < expected_pixels_len) {
+            return cubiomes::cpp::SavePpmStatus::WriteFailed;
+        }
+
+        std::fprintf(fp_, "P6\n%u %u\n255\n", sx, sy);
+        const auto written = std::fwrite(pixels.data(), sizeof pixels[0], expected_pixels_len, fp_);
+        return written == expected_pixels_len
+            ? cubiomes::cpp::SavePpmStatus::Ok
+            : cubiomes::cpp::SavePpmStatus::WriteFailed;
+    }
+
+private:
+    std::FILE *fp_{nullptr};
+};
+
+} // namespace
+
 uint64_t *loadSavedSeeds(const char *fnam, uint64_t *scnt)
 {
     if (scnt == nullptr || fnam == nullptr) {
@@ -646,15 +695,16 @@ int biomesToImage(unsigned char *pixels,
 
 int savePPM(const char *path, const unsigned char *pixels, const unsigned int sx, const unsigned int sy)
 {
-    std::FILE *fp = std::fopen(path, "wb");
-    if (fp == nullptr) {
+    if (path == nullptr || pixels == nullptr) {
         return -1;
     }
-    std::fprintf(fp, "P6\n%u %u\n255\n", sx, sy);
-    const std::size_t pixels_len = 3U * static_cast<std::size_t>(sx) * static_cast<std::size_t>(sy);
-    const std::size_t written = std::fwrite(pixels, sizeof pixels[0], pixels_len, fp);
-    std::fclose(fp);
-    return written != pixels_len;
+    const auto status = cubiomes::cpp::save_ppm(
+        std::string_view{path},
+        std::span<const std::uint8_t>{pixels, 3ULL * static_cast<std::size_t>(sx) * static_cast<std::size_t>(sy)},
+        sx,
+        sy
+    );
+    return static_cast<int>(status);
 }
 
 namespace cubiomes::cpp {
@@ -813,15 +863,8 @@ auto save_ppm(
     std::uint32_t sy
 ) -> SavePpmStatus
 {
-    const std::string path_string{path};
-    const int status = ::savePPM(path_string.c_str(), pixels.data(), sx, sy);
-    if (status == -1) {
-        return SavePpmStatus::OpenFailed;
-    }
-    if (status == 0) {
-        return SavePpmStatus::Ok;
-    }
-    return SavePpmStatus::WriteFailed;
+    PpmWriter writer{path};
+    return writer.write(pixels, sx, sy);
 }
 
 } // namespace cubiomes::cpp

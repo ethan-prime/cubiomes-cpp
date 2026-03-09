@@ -5,6 +5,8 @@
 - Public headers use `#pragma once` and remain C-compatible using `extern "C"` guards.
 - CI validates release and debug builds and runs regression hashes.
 - CI compiles and runs both C and C++ consumer smoke programs against the static library.
+- CI includes an ABI guard check for key public structs on x86_64 Linux.
+- CMake install exports package config files so downstream projects can use `find_package(cubiomes CONFIG REQUIRED)`.
 
 ## Guardrails
 - Keep behavior parity first; avoid algorithmic changes in mechanical port PRs.

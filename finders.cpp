@@ -587,8 +587,8 @@ int isEndChunkEmpty(const EndNoise *en, const SurfaceNoise *sn, uint64_t seed,
                 double noise = depth[i][j];
                 double pivot = inverse_drop[k] - noise;
                 noise += sampleSurfaceNoiseBetween(sn, x+i, k, z+j, pivot-eps, pivot+eps);
-                noise = lerp(u, -3000, noise);
-                noise = lerp(l, -30, noise);
+                noise = cubiomes_lerp(u, -3000, noise);
+                noise = cubiomes_lerp(l, -30, noise);
                 if (noise > 0)
                     return 0;
             }
@@ -613,8 +613,8 @@ int isEndChunkEmpty(const EndNoise *en, const SurfaceNoise *sn, uint64_t seed,
                 double noise = depth[i][j];
                 double pivot = inverse_drop[k] - noise;
                 noise += sampleSurfaceNoiseBetween(sn, x+i, k, z+j, pivot-eps, pivot+eps);
-                noise = lerp(u, -3000, noise);
-                noise = lerp(l, -30, noise);
+                noise = cubiomes_lerp(u, -3000, noise);
+                noise = cubiomes_lerp(l, -30, noise);
                 if (noise > 0)
                     goto L_check_full;
             }

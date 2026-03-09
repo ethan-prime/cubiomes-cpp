@@ -4,7 +4,7 @@ CXX     ?= g++
 ARFLAGS = cr
 override LDFLAGS = -lm
 override CFLAGS += -Wall -Wextra -fwrapv
-override CXXFLAGS += -Wall -Wextra -fwrapv
+override CXXFLAGS += -std=c++23 -Wall -Wextra -fwrapv
 
 ifeq ($(OS),Windows_NT)
 	override CFLAGS += -D_WIN32

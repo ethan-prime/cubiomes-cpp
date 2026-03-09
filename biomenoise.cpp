@@ -611,8 +611,8 @@ void sampleNoiseColumnEnd(double column[],
         }
         double noise = sampleSurfaceNoiseBetween(sn, x, y, z, -128, +128);
         double clamped = noise + depth;
-        clamped = lerp(upper_drop[y], -3000, clamped);
-        clamped = lerp(lower_drop[y], -30, clamped);
+        clamped = cubiomes_lerp(upper_drop[y], -3000, clamped);
+        clamped = cubiomes_lerp(lower_drop[y], -30, clamped);
         column[y - colymin] = clamped;
     }
 }
@@ -1007,7 +1007,7 @@ static Spline *createSpline_38219(SplineStack *ss, float f, int bl)
         u = (k - i) * 0.5F;
         if (bl) {
             addSplineVal(sp, -1.0F, createFixSpline(ss, i > 0.2 ? i : 0.2), 0);
-            addSplineVal(sp,  0.0F, createFixSpline(ss, lerp(0.5F, i, k)), u);
+            addSplineVal(sp,  0.0F, createFixSpline(ss, cubiomes_lerp(0.5F, i, k)), u);
         } else {
             addSplineVal(sp, -1.0F, createFixSpline(ss, i), u);
         }
@@ -1037,8 +1037,8 @@ static Spline *createFlatOffsetSpline(
 static Spline *createLandSpline(
     SplineStack *ss, float f, float g, float h, float i, float j, float k, int bl)
 {
-    Spline *sp1 = createSpline_38219(ss, lerp(i, 0.6F, 1.5F), bl);
-    Spline *sp2 = createSpline_38219(ss, lerp(i, 0.6F, 1.0F), bl);
+    Spline *sp1 = createSpline_38219(ss, cubiomes_lerp(i, 0.6F, 1.5F), bl);
+    Spline *sp2 = createSpline_38219(ss, cubiomes_lerp(i, 0.6F, 1.0F), bl);
     Spline *sp3 = createSpline_38219(ss, i, bl);
     const float ih = 0.5F * i;
     Spline *sp4 = createFlatOffsetSpline(ss, f-0.15F, ih, ih, ih, i*0.6F, 0.5F);
@@ -1105,7 +1105,7 @@ float getSpline(const Spline *sp, const float *vals)
     float o = getSpline(sp2, vals);
     float p = l * (h - g) - (o - n);
     float q = -m * (h - g) + (o - n);
-    float r = lerp(k, n, o) + k * (1.0F - k) * lerp(k, p, q);
+    float r = cubiomes_lerp(k, n, o) + k * (1.0F - k) * cubiomes_lerp(k, p, q);
     return r;
 }
 

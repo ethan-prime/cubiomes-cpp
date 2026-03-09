@@ -41,11 +41,6 @@ static_assert(offsetof(Generator, layered) == offsetof(Generator, bnb),
 #endif
 
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 ///=============================================================================
 /// Biome Generation
 ///=============================================================================
@@ -138,6 +133,3 @@ int mapApproxHeight(float *y, int *ids, const Generator *g,
     const SurfaceNoise *sn, int x, int z, int w, int h);
 
 
-#ifdef __cplusplus
-}
-#endif

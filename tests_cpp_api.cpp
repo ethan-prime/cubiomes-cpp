@@ -1,8 +1,10 @@
 #include "cpp_api.hpp"
+#include "util.hpp"
 
 #include <cassert>
 #include <cstdlib>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 int main()
@@ -13,6 +15,11 @@ int main()
     BiomeGenerator cppg(MC_1_20, 0);
     cppg.apply_seed(Dimension::Overworld, 262);
     assert(cppg.biome_at_block(0, 63, 0) == mushroom_fields);
+    assert(cubiomes::legacy::str2mc("1.21.2") == MC_1_21_3);
+    assert(cubiomes::legacy::str2mc("Beta 1.8") == MC_B1_8);
+    assert(cubiomes::legacy::str2mc(nullptr) == MC_UNDEF);
+    assert(std::string_view(cubiomes::legacy::mc2str(MC_1_20)) == "1.20");
+    assert(std::string_view(cubiomes::legacy::mc2str(MC_UNDEF)) == "?");
 
     ::Generator cg;
     setupGenerator(&cg, MC_1_20, 0);

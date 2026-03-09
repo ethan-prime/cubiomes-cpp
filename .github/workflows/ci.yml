@@ -36,29 +36,11 @@ jobs:
         run: |
           ./build/cubiomes-tests
           ./build/cubiomes-cpp-api-tests
+          ./build/cubiomes-util-tests
 
       - name: Performance smoke checkpoint
         if: matrix.build_type == 'Release'
         run: /usr/bin/time -f "cubiomes-tests elapsed=%e sec" ./build/cubiomes-tests >/dev/null
-
-  c-api-smoke:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUBIOMES_BUILD_TESTS=OFF
-
-      - name: Build static library
-        run: cmake --build build --config Release -j --target cubiomes_static
-
-      - name: Build and run C API smoke
-        run: |
-          cc -std=c11 -O2 -Wall -Wextra -Werror -I. .github/ci/c_api_smoke.c build/libcubiomes_static.a -lm -pthread -o c-api-smoke
-          ./c-api-smoke
 
   cpp-api-smoke:
     runs-on: ubuntu-latest
@@ -78,19 +60,6 @@ jobs:
         run: |
           c++ -std=c++23 -O2 -Wall -Wextra -Werror -I. .github/ci/cpp_api_smoke.cpp build/libcubiomes_static.a -lm -pthread -o cpp-api-smoke
           ./cpp-api-smoke
-
-  abi-guard:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Compile and run ABI guard
-        run: |
-          c++ -std=c++23 -O2 -Wall -Wextra -Werror -I. .github/ci/abi_guard.cpp -o abi-guard
-          ./abi-guard
 
   clang-tidy:
     runs-on: ubuntu-latest
@@ -118,7 +87,7 @@ jobs:
 
   pedantic-build:
     runs-on: ubuntu-latest
-    needs: [c-api-smoke, cpp-api-smoke]
+    needs: [cpp-api-smoke]
 
     steps:
       - name: Checkout
@@ -131,11 +100,14 @@ jobs:
         run: cmake --build build --config Release -j
 
       - name: Run regression tests
-        run: ./build/cubiomes-tests
+        run: |
+          ./build/cubiomes-tests
+          ./build/cubiomes-cpp-api-tests
+          ./build/cubiomes-util-tests
 
   cmake-consumer-smoke:
     runs-on: ubuntu-latest
-    needs: [c-api-smoke, cpp-api-smoke, abi-guard, clang-tidy]
+    needs: [cpp-api-smoke, clang-tidy]
 
     steps:
       - name: Checkout
@@ -155,6 +127,5 @@ jobs:
       - name: Build and run consumers
         run: |
           cmake --build consumer-build -j
-          ./consumer-build/consumer_c
           ./consumer-build/consumer_cpp
           ./consumer-build/consumer_cpp_api

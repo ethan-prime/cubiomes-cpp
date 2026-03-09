@@ -555,7 +555,7 @@ int searchAll48(
 
         if (seedbuf && buflen)
         {
-            *seedbuf = loadSavedSeeds(path, buflen);
+            *seedbuf = cubiomes::legacy::loadSavedSeeds(path, buflen);
         }
     }
     else

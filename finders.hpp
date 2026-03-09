@@ -4,11 +4,6 @@
 #include "generator.hpp"
 
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 #define MASK48 (((int64_t)1 << 48) - 1)
 
 enum StructureType
@@ -833,7 +828,4 @@ Pos getLargeStructurePos(StructureConfig config, uint64_t seed, int regX, int re
 
 
 
-#ifdef __cplusplus
-}
-#endif
 

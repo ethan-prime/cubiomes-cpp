@@ -14,6 +14,7 @@ ifeq ($(OS),Windows_NT)
 	RM = del
 else
 	override LDFLAGS += -pthread
+	override LDFLAGS += -Wl,-rpath,/usr/local/gcc-14.1.0/lib64
 	#RM = rm
 endif
 

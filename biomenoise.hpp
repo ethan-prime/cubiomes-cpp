@@ -153,11 +153,6 @@ STRUCT(BiomeTree)
     uint32_t len;
 };
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 //==============================================================================
 // Noise
 //==============================================================================
@@ -305,7 +300,4 @@ int getBiomeDepthAndScale(int id, double *depth, double *scale, int *grass);
 Range getVoronoiSrcRange(Range r);
 
 
-#ifdef __cplusplus
-}
-#endif
 

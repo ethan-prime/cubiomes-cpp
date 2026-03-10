@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <inttypes.h>
+#include <concepts>
+#include <cstdint>
+#include <utility>
 
 
 ///=============================================================================
@@ -399,3 +402,214 @@ uint64_t mulInv(uint64_t x, uint64_t m)
 }
 
 
+namespace cubiomes::cpp {
+
+#if defined(__GNUC__) || defined(__clang__)
+#define CUBIOMES_CPP_HOT [[gnu::hot]]
+#define CUBIOMES_CPP_ALWAYS_INLINE [[gnu::always_inline]]
+#else
+#define CUBIOMES_CPP_HOT
+#define CUBIOMES_CPP_ALWAYS_INLINE
+#endif
+
+[[nodiscard]] constexpr auto java_lcg_mask() noexcept -> std::uint64_t
+{
+    return (std::uint64_t{1} << 48U) - 1U;
+}
+
+[[nodiscard]] constexpr auto java_lcg_mult() noexcept -> std::uint64_t
+{
+    return 0x5deece66dULL;
+}
+
+[[nodiscard]] constexpr auto java_lcg_add() noexcept -> std::uint64_t
+{
+    return 0xbULL;
+}
+
+[[nodiscard]] constexpr auto java_seed_from_value(std::uint64_t value) noexcept -> std::uint64_t
+{
+    return (value ^ java_lcg_mult()) & java_lcg_mask();
+}
+
+[[nodiscard]] constexpr auto java_step_seed(std::uint64_t seed) noexcept -> std::uint64_t
+{
+    return (seed * java_lcg_mult() + java_lcg_add()) & java_lcg_mask();
+}
+
+[[nodiscard]] constexpr auto mc_step_seed(std::uint64_t seed, std::uint64_t salt) noexcept -> std::uint64_t
+{
+    return seed * (seed * 6364136223846793005ULL + 1442695040888963407ULL) + salt;
+}
+
+[[nodiscard]] constexpr auto mc_layer_salt(std::uint64_t salt) noexcept -> std::uint64_t
+{
+    auto ls = mc_step_seed(salt, salt);
+    ls = mc_step_seed(ls, salt);
+    ls = mc_step_seed(ls, salt);
+    return ls;
+}
+
+[[nodiscard]] constexpr auto mc_start_salt(std::uint64_t ws, std::uint64_t ls) noexcept -> std::uint64_t
+{
+    auto st = mc_step_seed(ws, ls);
+    st = mc_step_seed(st, ls);
+    st = mc_step_seed(st, ls);
+    return st;
+}
+
+[[nodiscard]] constexpr auto mc_start_seed(std::uint64_t ws, std::uint64_t ls) noexcept -> std::uint64_t
+{
+    return mc_step_seed(mc_start_salt(ws, ls), 0);
+}
+
+[[nodiscard]] constexpr auto mc_chunk_seed(std::uint64_t ss, std::int32_t x, std::int32_t z) noexcept -> std::uint64_t
+{
+    auto cs = ss + static_cast<std::uint64_t>(x);
+    cs = mc_step_seed(cs, static_cast<std::uint64_t>(z));
+    cs = mc_step_seed(cs, static_cast<std::uint64_t>(x));
+    cs = mc_step_seed(cs, static_cast<std::uint64_t>(z));
+    return cs;
+}
+
+class JavaRng final {
+public:
+    constexpr JavaRng() = default;
+    explicit constexpr JavaRng(std::uint64_t value) noexcept : seed_{java_seed_from_value(value)} {}
+
+    constexpr auto set_seed(std::uint64_t value) noexcept -> void
+    {
+        seed_ = java_seed_from_value(value);
+    }
+
+    [[nodiscard]] constexpr auto seed() const noexcept -> std::uint64_t
+    {
+        return seed_;
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_bits(std::int32_t bits) noexcept -> std::int32_t
+    {
+        seed_ = java_step_seed(seed_);
+        return static_cast<std::int32_t>(static_cast<std::int64_t>(seed_) >> (48 - bits));
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_int(std::int32_t n) noexcept -> std::int32_t
+    {
+        if (n <= 0) {
+            return 0;
+        }
+        auto raw_seed = seed_;
+        const auto out = ::nextInt(&raw_seed, n);
+        seed_ = raw_seed;
+        return out;
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_long() noexcept -> std::uint64_t
+    {
+        auto raw_seed = seed_;
+        const auto out = ::nextLong(&raw_seed);
+        seed_ = raw_seed;
+        return out;
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_float() noexcept -> float
+    {
+        auto raw_seed = seed_;
+        const auto out = ::nextFloat(&raw_seed);
+        seed_ = raw_seed;
+        return out;
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_double() noexcept -> double
+    {
+        auto raw_seed = seed_;
+        const auto out = ::nextDouble(&raw_seed);
+        seed_ = raw_seed;
+        return out;
+    }
+
+    inline auto skip(std::uint64_t count) noexcept -> void
+    {
+        auto raw_seed = seed_;
+        ::skipNextN(&raw_seed, count);
+        seed_ = raw_seed;
+    }
+
+private:
+    std::uint64_t seed_{};
+};
+
+class XoroshiroRng final {
+public:
+    constexpr XoroshiroRng() = default;
+    explicit XoroshiroRng(std::uint64_t seed) noexcept
+    {
+        ::xSetSeed(&state_, seed);
+    }
+
+    auto set_seed(std::uint64_t seed) noexcept -> void
+    {
+        ::xSetSeed(&state_, seed);
+    }
+
+    [[nodiscard]] auto state() const noexcept -> Xoroshiro
+    {
+        return state_;
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_long() noexcept -> std::uint64_t
+    {
+        return ::xNextLong(&state_);
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_int(std::uint32_t n) noexcept -> std::int32_t
+    {
+        return ::xNextInt(&state_, n);
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_int_java(std::uint32_t n) noexcept -> std::int32_t
+    {
+        return ::xNextIntJ(&state_, n);
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_double() noexcept -> double
+    {
+        return ::xNextDouble(&state_);
+    }
+
+    [[nodiscard]] CUBIOMES_CPP_HOT CUBIOMES_CPP_ALWAYS_INLINE inline auto next_float() noexcept -> float
+    {
+        return ::xNextFloat(&state_);
+    }
+
+    inline auto skip(std::int32_t count) noexcept -> void
+    {
+        ::xSkipN(&state_, count);
+    }
+
+private:
+    Xoroshiro state_{};
+};
+
+template <std::floating_point T>
+[[nodiscard]] constexpr auto lerp(T part, T from, T to) noexcept -> T
+{
+    return from + part * (to - from);
+}
+
+template <std::floating_point T>
+[[nodiscard]] constexpr auto lerp_clamped(T part, T from, T to) noexcept -> T
+{
+    if (part <= T{0}) {
+        return from;
+    }
+    if (part >= T{1}) {
+        return to;
+    }
+    return lerp(part, from, to);
+}
+
+} // namespace cubiomes::cpp
+
+#undef CUBIOMES_CPP_HOT
+#undef CUBIOMES_CPP_ALWAYS_INLINE

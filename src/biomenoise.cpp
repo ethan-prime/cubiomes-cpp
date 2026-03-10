@@ -6,11 +6,11 @@
 #include "tables/btree20.hpp"
 #include "tables/btree21wd.hpp"
 
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <math.h>
-#include <float.h>
+#include <cfloat>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 
@@ -264,7 +264,7 @@ int mapNether3D(const NetherNoise *nn, int *out, Range r, float confidence)
     }
     int scale = r.scale / 4;
 
-    memset(out, 0, sizeof(int) * r.sx*r.sy*r.sz);
+    std::memset(out, 0, sizeof(int) * r.sx*r.sy*r.sz);
 
     // The noisedelta is the distance between the first and second closest
     // biomes within the noise space. Dividing this by the greatest possible
@@ -333,7 +333,7 @@ int genNetherScaled(const NetherNoise *nn, int *out, Range r, int mc, uint64_t s
         }
         else
         {
-            src = NULL;
+            src = nullptr;
         }
 
         int i, j, k;
@@ -353,7 +353,7 @@ int genNetherScaled(const NetherNoise *nn, int *out, Range r, int mc, uint64_t s
                     }
                     else
                     {
-                        *p = getNetherBiome(nn, x4, y4, z4, NULL);
+                        *p = getNetherBiome(nn, x4, y4, z4, nullptr);
                     }
                     p++;
                 }
@@ -403,18 +403,14 @@ static int getEndBiome(int hx, int hz, const uint16_t *hmap, int hw)
         uint16_t e;
         uint32_t u;
 
-        // force unroll for(i=0;i<25;i++) in a cross compatible way
-        #define x5(i,x)    { x; i++; x; i++; x; i++; x; i++; x; i++; }
-        #define for25(i,x) { i = 0; x5(i,x) x5(i,x) x5(i,x) x5(i,x) x5(i,x) }
-        for25(i,
-            if unlikely(e = p_elev[i])
+        for (i = 0; i < 25; ++i)
+        {
+            if unlikely((e = p_elev[i]) != 0)
             {
                 if ((u = (p_dsi[i] + (uint32_t)dsj) * e) < h)
                     h = u;
             }
-        );
-        #undef for25
-        #undef x5
+        }
         p_elev += hw;
     }
 
@@ -478,7 +474,7 @@ int mapEndBiome(const EndNoise *en, int *out, int x, int z, int w, int h)
                         continue;
                     }
                 }
-                uint16_t *p_elev = &hmap[static_cast<std::size_t>((hz/2-z) * hw + (hx/2-x))];
+                uint16_t *p_elev = &hmap[static_cast<std::size_t>((hz/2-z)*hw + (hx/2-x))];
                 out[j*w+i] = getEndBiome(hx, hz, p_elev, hw);
             }
         }
@@ -1538,18 +1534,18 @@ void genBiomeNoiseChunkSection(const BiomeNoise *bn, int out[4][4][4],
     uint64_t buf = 0;
     int i, j, k;
     int x4 = cx * 4, y4 = cy * 4, z4 = cz * 4;
-    if (dat == NULL)
+    if (dat == nullptr)
         dat = &buf;
     if (*dat == 0)
     {   // try to determine the ending point of the last chunk section
-        sampleBiomeNoise(bn, NULL, x4+3, y4-1, z4+3, dat, 0);
+        sampleBiomeNoise(bn, nullptr, x4+3, y4-1, z4+3, dat, 0);
     }
 
     // iteration order is important
     for (i = 0; i < 4; ++i) {
         for (j = 0; j < 4; ++j) {
             for (k = 0; k < 4; ++k) {
-                out[i][j][k] = sampleBiomeNoise(bn, NULL, x4+i, y4+j, z4+k, dat, 0);
+                out[i][j][k] = sampleBiomeNoise(bn, nullptr, x4+i, y4+j, z4+k, dat, 0);
             }
         }
     }
@@ -1558,7 +1554,7 @@ void genBiomeNoiseChunkSection(const BiomeNoise *bn, int out[4][4][4],
 static void genBiomeNoise3D(const BiomeNoise *bn, int *out, Range r, int opt)
 {
     uint64_t dat = 0;
-    uint64_t *p_dat = opt ? &dat : NULL;
+    uint64_t *p_dat = opt ? &dat : nullptr;
     uint32_t flags = opt ? SAMPLE_NO_SHIFT : 0;
     int i, j, k;
     int *p = out;
@@ -1573,7 +1569,7 @@ static void genBiomeNoise3D(const BiomeNoise *bn, int *out, Range r, int opt)
             for (i = 0; i < r.sx; i++)
             {
                 int xi = (r.x+i)*scale + mid;
-                *p = sampleBiomeNoise(bn, NULL, xi, yk, zj, p_dat, flags);
+                *p = sampleBiomeNoise(bn, nullptr, xi, yk, zj, p_dat, flags);
                 p++;
             }
         }
@@ -1599,7 +1595,7 @@ int genBiomeNoiseScaled(const BiomeNoise *bn, int *out, Range r, uint64_t sha)
         }
         else
         {
-            src = NULL;
+            src = nullptr;
         }
 
         int *p = out;
@@ -1710,7 +1706,7 @@ double approxSurfaceBeta(const BiomeNoiseBeta *bnb, const SurfaceNoiseBeta *snb,
 {
     // TODO: sample vertically to get a more accurate height value
     double climate[2];
-    sampleBiomeNoiseBeta(bnb, NULL, climate, x, z);
+    sampleBiomeNoiseBeta(bnb, nullptr, climate, x, z);
     double cols[2];
     SeaLevelColumnNoiseBeta colNoise;
     genColumnNoise(snb, &colNoise, x*0.25, z*0.25, 0);
@@ -1732,7 +1728,7 @@ int genBiomeNoiseBetaScaled(const BiomeNoiseBeta *bnb,
             {
                 double climate[2];
                 int x = (r.x+i)*r.scale + mid;
-                int id = sampleBiomeNoiseBeta(bnb, NULL, climate, x, z);
+                int id = sampleBiomeNoiseBeta(bnb, nullptr, climate, x, z);
 
                 if (snb)
                 {
@@ -1792,24 +1788,24 @@ int genBiomeNoiseBetaScaled(const BiomeNoiseBeta *bnb,
             colNoise = &buf[idx];
             if (stripe == 0)
                 genColumnNoise(snb, colNoise, cx, cz, 0);
-            sampleBiomeNoiseBeta(bnb, NULL, climate, csx+off[ci], csz+off[cj]);
+            sampleBiomeNoiseBeta(bnb, nullptr, climate, csx+off[ci], csz+off[cj]);
             processColumnNoise(&cols[0], colNoise, climate);
 
             colNoise = &buf[(idx + minDim + 1) % bufLen];
             if (cz == cz1)
                 genColumnNoise(snb, colNoise, cx+1, cz, 0);
-            sampleBiomeNoiseBeta(bnb, NULL, climate, csx+off[ci+1], csz+off[cj]);
+            sampleBiomeNoiseBeta(bnb, nullptr, climate, csx+off[ci+1], csz+off[cj]);
             processColumnNoise(&cols[2], colNoise, climate);
 
             colNoise = &buf[(idx + minDim) % bufLen];
             if (cx == cx1)
                 genColumnNoise(snb, colNoise, cx, cz+1, 0);
-            sampleBiomeNoiseBeta(bnb, NULL, climate, csx+off[ci], csz+off[cj+1]);
+            sampleBiomeNoiseBeta(bnb, nullptr, climate, csx+off[ci], csz+off[cj+1]);
             processColumnNoise(&cols[4], colNoise, climate);
 
             colNoise = &buf[idx];
             genColumnNoise(snb, colNoise, cx+1, cz+1, 0);
-            sampleBiomeNoiseBeta(bnb, NULL, climate, csx+off[ci+1], csz+off[cj+1]);
+            sampleBiomeNoiseBeta(bnb, nullptr, climate, csx+off[ci+1], csz+off[cj+1]);
             processColumnNoise(&cols[6], colNoise, climate);
 
             // scale=1: cellwidth=0, steps=4
@@ -1827,7 +1823,7 @@ int genBiomeNoiseBetaScaled(const BiomeNoiseBeta *bnb,
                     int mid = r.scale >> 1;
                     int bx = x * r.scale + mid;
                     int bz = z * r.scale + mid;
-                    int id = sampleBiomeNoiseBeta(bnb, NULL, climate, bx, bz);
+                    int id = sampleBiomeNoiseBeta(bnb, nullptr, climate, bx, bz);
                     double dx = (bx & 3) * 0.25;
                     double dz = (bz & 3) * 0.25;
                     if (lerp4(cols+0, cols+2, cols+4, cols+6, 7./8, dx, dz) <= 0)

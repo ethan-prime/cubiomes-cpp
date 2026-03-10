@@ -1,7 +1,7 @@
 #pragma once
 
 #include "rng.hpp"
-#include <math.h>
+#include <cmath>
 
 STRUCT(PerlinNoise)
 {
@@ -71,5 +71,43 @@ int xDoublePerlinInit(DoublePerlinNoise *noise, Xoroshiro *xr,
 double sampleDoublePerlin(const DoublePerlinNoise *noise,
         double x, double y, double z);
 
+namespace cubiomes::cpp {
 
+inline auto perlin_init(PerlinNoise &noise, uint64_t &seed) -> void
+{
+    perlinInit(&noise, &seed);
+}
 
+inline auto x_perlin_init(PerlinNoise &noise, Xoroshiro &xr) -> void
+{
+    xPerlinInit(&noise, &xr);
+}
+
+inline auto sample_perlin(
+    const PerlinNoise &noise,
+    double x,
+    double y,
+    double z,
+    double yamp,
+    double ymin
+) -> double
+{
+    return samplePerlin(&noise, x, y, z, yamp, ymin);
+}
+
+inline auto sample_simplex_2d(const PerlinNoise &noise, double x, double y) -> double
+{
+    return sampleSimplex2D(&noise, x, y);
+}
+
+inline auto sample_octave(const OctaveNoise &noise, double x, double y, double z) -> double
+{
+    return sampleOctave(&noise, x, y, z);
+}
+
+inline auto sample_double_perlin(const DoublePerlinNoise &noise, double x, double y, double z) -> double
+{
+    return sampleDoublePerlin(&noise, x, y, z);
+}
+
+} // namespace cubiomes::cpp

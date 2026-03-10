@@ -49,16 +49,22 @@ int main()
         EndNoise en{};
         setEndSeed(&en, MC_1_20, 262ULL);
         const auto end_biomes = cubiomes::cpp::map_end_biome(en, 0, 0, 4, 4);
-        assert(end_biomes.size() == 16);
+        if (end_biomes.size() != 16) {
+            return 1;
+        }
         const auto end_scaled = cubiomes::cpp::map_end(en, 0, 0, 4, 4);
-        assert(end_scaled.size() == 16);
+        if (end_scaled.size() != 16) {
+            return 1;
+        }
     }
     {
         std::uint64_t seed = 12345;
         PerlinNoise p{};
         cubiomes::cpp::perlin_init(p, seed);
         const auto s = cubiomes::cpp::sample_simplex_2d(p, 1.0, 2.0);
-        assert(s == s);
+        if (s != s) {
+            return 1;
+        }
     }
     {
         std::uint64_t legacy_seed = 42ULL;

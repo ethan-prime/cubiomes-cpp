@@ -1,7 +1,10 @@
 #include "cpp_api.hpp"
+#include "biomenoise.hpp"
 #include "finders.hpp"
 #include "generator.hpp"
 #include "layers.hpp"
+#include "noise.hpp"
+#include "rng.hpp"
 #include "util.hpp"
 #include "legacy_generator.hpp"
 #include "legacy_util.hpp"
@@ -17,6 +20,12 @@ int main()
 {
     using cubiomes::cpp::BiomeGenerator;
     using cubiomes::cpp::Dimension;
+    {
+        constexpr std::uint64_t ws = 123456789ULL;
+        constexpr std::uint64_t ls = cubiomes::cpp::mc_layer_salt(2000ULL);
+        static_assert(cubiomes::cpp::mc_start_seed(ws, ls) != 0ULL);
+        static_assert(cubiomes::cpp::mc_chunk_seed(cubiomes::cpp::mc_start_seed(ws, ls), 10, -5) != 0ULL);
+    }
 
     BiomeGenerator cppg(MC_1_20, 0);
     cppg.apply_seed(Dimension::Overworld, 262);
@@ -35,6 +44,55 @@ int main()
         assert(cubiomes::cpp::biome_exists(Version::V1_20, Biome::Plains));
         assert(cubiomes::cpp::is_overworld(Version::V1_20, Biome::Plains));
         assert(cubiomes::cpp::dimension_kind(Biome::EndHighlands) == DimensionKind::End);
+    }
+    {
+        EndNoise en{};
+        setEndSeed(&en, MC_1_20, 262ULL);
+        const auto end_biomes = cubiomes::cpp::map_end_biome(en, 0, 0, 4, 4);
+        if (end_biomes.size() != 16) {
+            return 1;
+        }
+        const auto end_scaled = cubiomes::cpp::map_end(en, 0, 0, 4, 4);
+        if (end_scaled.size() != 16) {
+            return 1;
+        }
+    }
+    {
+        std::uint64_t seed = 12345;
+        PerlinNoise p{};
+        cubiomes::cpp::perlin_init(p, seed);
+        const auto s = cubiomes::cpp::sample_simplex_2d(p, 1.0, 2.0);
+        if (s != s) {
+            return 1;
+        }
+    }
+    {
+        std::uint64_t legacy_seed = 42ULL;
+        cubiomes::cpp::JavaRng rng{42ULL};
+        setSeed(&legacy_seed, 42ULL);
+        for (int i = 0; i < 16; ++i) {
+            if (rng.next_int(31) != nextInt(&legacy_seed, 31)) {
+                return 1;
+            }
+        }
+        rng.skip(4);
+        skipNextN(&legacy_seed, 4);
+        if (rng.next_long() != nextLong(&legacy_seed)) {
+            return 1;
+        }
+    }
+    {
+        Xoroshiro legacy{};
+        xSetSeed(&legacy, 987654321ULL);
+        cubiomes::cpp::XoroshiroRng rng{987654321ULL};
+        for (int i = 0; i < 16; ++i) {
+            if (rng.next_int(97U) != xNextInt(&legacy, 97U)) {
+                return 1;
+            }
+        }
+        if (rng.next_double() != xNextDouble(&legacy)) {
+            return 1;
+        }
     }
 
     ::Generator cg;

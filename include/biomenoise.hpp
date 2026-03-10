@@ -3,6 +3,7 @@
 #include "noise.hpp"
 #include "layers.hpp"
 
+#include <vector>
 
 STRUCT(Range)
 {
@@ -279,12 +280,47 @@ double sampleClimatePara(const BiomeNoise *bn, int64_t *np, double x, double z);
 void genBiomeNoiseChunkSection(const BiomeNoise *bn, int out[4][4][4],
     int cx, int cy, int cz, uint64_t *dat);
 
-/**
- * The scaled biome noise generation applies for the Overworld version 1.18+.
- * The 'sha' hash of the seed is only required for voronoi at scale 1:1.
- * A scale of zero is interpreted as the default 1:4 scale.
- */
 int genBiomeNoiseScaled(const BiomeNoise *bn, int *out, Range r, uint64_t sha);
+
+namespace cubiomes::cpp {
+
+inline auto set_nether_seed(NetherNoise &nn, std::uint64_t seed) -> void
+{
+    setNetherSeed(&nn, seed);
+}
+
+inline auto map_nether_2d(const NetherNoise &nn, int x, int z, int w, int h) -> std::vector<int>
+{
+    std::vector<int> out(static_cast<std::size_t>(w) * static_cast<std::size_t>(h), 0);
+    (void)mapNether2D(&nn, out.data(), x, z, w, h);
+    return out;
+}
+
+inline auto map_end_biome(const EndNoise &en, int x, int z, int w, int h) -> std::vector<int>
+{
+    std::vector<int> out(static_cast<std::size_t>(w) * static_cast<std::size_t>(h), 0);
+    (void)mapEndBiome(&en, out.data(), x, z, w, h);
+    return out;
+}
+
+inline auto map_end(const EndNoise &en, int x, int z, int w, int h) -> std::vector<int>
+{
+    std::vector<int> out(static_cast<std::size_t>(w) * static_cast<std::size_t>(h), 0);
+    (void)mapEnd(&en, out.data(), x, z, w, h);
+    return out;
+}
+
+inline auto gen_biome_noise_scaled(const BiomeNoise &bn, Range r, std::uint64_t sha) -> std::vector<int>
+{
+    if (r.sy == 0) {
+        r.sy = 1;
+    }
+    std::vector<int> out(static_cast<std::size_t>(r.sx) * static_cast<std::size_t>(r.sy) * static_cast<std::size_t>(r.sz), 0);
+    (void)genBiomeNoiseScaled(&bn, out.data(), r, sha);
+    return out;
+}
+
+} // namespace cubiomes::cpp
 
 /**
  * Generates the biomes for Beta 1.7, the surface noise is optional and enables
@@ -298,6 +334,4 @@ int getBiomeDepthAndScale(int id, double *depth, double *scale, int *grass);
 
 // Gets the range in the parent/source layer which may be accessed by voronoi.
 Range getVoronoiSrcRange(Range r);
-
-
 
